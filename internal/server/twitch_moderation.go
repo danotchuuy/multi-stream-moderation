@@ -76,6 +76,10 @@ type sendChatMessageRequest struct {
 	BroadcasterID string `json:"broadcaster_id"`
 	SenderID      string `json:"sender_id"`
 	Message       string `json:"message"`
+	// ReplyParentMessageID threads Message under an earlier one, the
+	// same way replying in Twitch's own chat UI does. Omitted for an
+	// ordinary, non-reply message.
+	ReplyParentMessageID string `json:"reply_parent_message_id,omitempty"`
 }
 
 type sendChatMessageResult struct {
@@ -89,16 +93,18 @@ type sendChatMessageResult struct {
 
 // sendChatMessage posts a message to broadcasterID's chat, sent as
 // senderID — the authenticated caller themselves, since a user token has
-// no way to send "as the channel". A 2xx response doesn't guarantee
-// delivery: Twitch can still silently drop the message (e.g. AutoMod),
-// reported via is_sent/drop_reason rather than an error status, so that's
-// translated into an error here too.
+// no way to send "as the channel". replyParentMessageID, if non-empty,
+// threads the new message as a reply to that earlier message ID. A 2xx
+// response doesn't guarantee delivery: Twitch can still silently drop
+// the message (e.g. AutoMod), reported via is_sent/drop_reason rather
+// than an error status, so that's translated into an error here too.
 // https://dev.twitch.tv/docs/api/reference/#send-chat-message
-func sendChatMessage(ctx context.Context, clientID, accessToken, broadcasterID, senderID, message string) error {
+func sendChatMessage(ctx context.Context, clientID, accessToken, broadcasterID, senderID, message, replyParentMessageID string) error {
 	body, err := json.Marshal(sendChatMessageRequest{
-		BroadcasterID: broadcasterID,
-		SenderID:      senderID,
-		Message:       message,
+		BroadcasterID:        broadcasterID,
+		SenderID:             senderID,
+		Message:              message,
+		ReplyParentMessageID: replyParentMessageID,
 	})
 	if err != nil {
 		return err

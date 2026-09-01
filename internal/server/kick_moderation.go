@@ -20,18 +20,24 @@ type kickSendChatMessageRequest struct {
 	BroadcasterUserID int64  `json:"broadcaster_user_id"`
 	Content           string `json:"content"`
 	Type              string `json:"type"`
+	// ReplyToMessageID threads Content under an earlier message, the
+	// same way replying in Kick's own chat UI does. Omitted for an
+	// ordinary, non-reply message.
+	ReplyToMessageID string `json:"reply_to_message_id,omitempty"`
 }
 
 // sendKickChatMessage posts a new chat message to broadcasterUserID's
 // channel, sent as the signed-in user (type "user"); Kick's "bot" type is
 // for app-level tokens with no specific channel, which doesn't fit this
-// app's per-user OAuth model.
+// app's per-user OAuth model. replyToMessageID, if non-empty, threads
+// the new message as a reply to that earlier message ID.
 // https://docs.kick.com/apis/chat#send-chat-message
-func sendKickChatMessage(ctx context.Context, accessToken string, broadcasterUserID int64, content string) error {
+func sendKickChatMessage(ctx context.Context, accessToken string, broadcasterUserID int64, content, replyToMessageID string) error {
 	body, err := json.Marshal(kickSendChatMessageRequest{
 		BroadcasterUserID: broadcasterUserID,
 		Content:           content,
 		Type:              "user",
+		ReplyToMessageID:  replyToMessageID,
 	})
 	if err != nil {
 		return err

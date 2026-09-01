@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useKickChatStream, type KickDisplayMessage } from "../lib/useKickChatStream";
 import { useKickSpamGroups } from "../lib/useKickSpamGroups";
+import { useAutoScroll } from "../lib/useAutoScroll";
 import { sendKickChatMessage } from "../lib/kickApi";
 import { KickModerationControls } from "./KickModerationControls";
 import { KickSpamGroupsPanel } from "./KickSpamGroupsPanel";
 import { ChatBadges } from "./ChatBadges";
-import { ChatComposer } from "./ChatComposer";
+import { ChatMessageText } from "./ChatMessageText";
+import { ChatComposer, type ReplyTarget } from "./ChatComposer";
 import { KickChannelInfoMenu } from "./KickChannelInfoMenu";
 
 type Props = {
@@ -25,6 +27,12 @@ export function canModerateMessage(
   return true;
 }
 
+/** A reply needs a real message to thread under, so system notices and
+ * already-deleted messages aren't reply targets. */
+function canReplyToMessage(m: KickDisplayMessage): boolean {
+  return !m.system && !m.deleted;
+}
+
 export function KickChatPanel({
   channel,
   canModerate,
@@ -34,6 +42,8 @@ export function KickChatPanel({
   const { messages, connected, markDeleted } = useKickChatStream(channel);
   const spamGroups = useKickSpamGroups(messages, viewerIsBroadcaster);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
 
   return (
     <>
@@ -63,7 +73,7 @@ export function KickChatPanel({
           </p>
         )}
 
-        <ul className="chat-log">
+        <ul className="chat-log" ref={chatLogRef} onScroll={onScroll}>
           {messages.map((m, i) => (
             <li
               key={m.id || `${m.timestamp}-${i}`}
@@ -84,8 +94,23 @@ export function KickChatPanel({
                     {m.username}
                   </span>
                   <span className="chat-text">
-                    {m.deleted ? "message deleted" : m.text}
+                    {m.deleted ? (
+                      "message deleted"
+                    ) : (
+                      <ChatMessageText text={m.text} fragments={m.fragments} />
+                    )}
                   </span>
+                  {canReplyToMessage(m) && (
+                    <button
+                      type="button"
+                      className="chat-reply-button"
+                      aria-label="Reply"
+                      title="Reply"
+                      onClick={() => setReplyTo({ id: m.id, username: m.username, text: m.text })}
+                    >
+                      ↩
+                    </button>
+                  )}
                   {canModerate && canModerateMessage(m, viewerIsBroadcaster) && (
                     <KickModerationControls
                       channel={channel}
@@ -104,7 +129,11 @@ export function KickChatPanel({
           )}
         </ul>
 
-        <ChatComposer onSend={(message) => sendKickChatMessage(channel, message)} />
+        <ChatComposer
+          onSend={(message, replyToId) => sendKickChatMessage(channel, message, replyToId)}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
       </div>
 
       {canModerate && (

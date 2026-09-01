@@ -98,9 +98,13 @@ export function useChatStream(channel: string | null) {
         const notice: DisplayMessage = {
           id: `notice-${Date.now()}-${clear.userId}`,
           channel: clear.channel,
+          // Twitch's EventSub replacement for this event doesn't say
+          // whether it was a ban or a timeout, or for how long — only
+          // that the user's messages were cleared — so this can only be
+          // worded generically unless durationSeconds happens to be set.
           text: clear.durationSeconds
             ? `${clear.username || "a chatter"} was timed out for ${formatDuration(clear.durationSeconds)}`
-            : `${clear.username || "a chatter"} was banned`,
+            : `${clear.username || "a chatter"} was removed from chat`,
           username: "",
           displayName: "",
           userId: "",

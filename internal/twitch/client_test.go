@@ -2,159 +2,205 @@ package twitch
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-func TestParseLinePrivmsg(t *testing.T) {
-	line := `@badge-info=;badges=broadcaster/1;color=#FF0000;display-name=SomeUser;id=abc-123;mod=0;subscriber=0;tmi-sent-ts=1700000000000;user-id=456 :someuser!someuser@someuser.tmi.twitch.tv PRIVMSG #achannel :Hello world`
-
-	p, err := parseLine(line)
-	if err != nil {
-		t.Fatalf("parseLine returned error: %v", err)
+func TestHasBadge(t *testing.T) {
+	badges := []Badge{{SetID: "moderator", ID: "1"}, {SetID: "subscriber", ID: "12"}}
+	if !HasBadge(badges, "moderator") {
+		t.Error("expected HasBadge(moderator) to be true")
 	}
-	if p.Command != "PRIVMSG" {
-		t.Errorf("Command = %q, want PRIVMSG", p.Command)
+	if HasBadge(badges, "broadcaster") {
+		t.Error("expected HasBadge(broadcaster) to be false")
 	}
-	if len(p.Params) != 2 || p.Params[0] != "#achannel" || p.Params[1] != "Hello world" {
-		t.Errorf("Params = %#v, want [#achannel, Hello world]", p.Params)
-	}
-	if p.Prefix != "someuser!someuser@someuser.tmi.twitch.tv" {
-		t.Errorf("Prefix = %q", p.Prefix)
-	}
-	if p.Tags["display-name"] != "SomeUser" {
-		t.Errorf("display-name tag = %q", p.Tags["display-name"])
-	}
-
-	msg := newMessage(p, line)
-	if msg.Channel != "#achannel" || msg.Text != "Hello world" {
-		t.Errorf("newMessage() = %+v", msg)
-	}
-	if msg.Username != "someuser" || msg.DisplayName != "SomeUser" {
-		t.Errorf("newMessage() username/display = %q/%q", msg.Username, msg.DisplayName)
-	}
-	if !msg.Broadcaster {
-		t.Error("expected Broadcaster to be true")
-	}
-	if len(msg.Badges) != 1 || msg.Badges[0] != (Badge{Name: "broadcaster", Version: "1"}) {
-		t.Errorf("Badges = %#v, want [{broadcaster 1}]", msg.Badges)
-	}
-	if msg.ID != "abc-123" || msg.UserID != "456" {
-		t.Errorf("ID/UserID = %q/%q", msg.ID, msg.UserID)
-	}
-	wantTS := time.UnixMilli(1700000000000)
-	if !msg.Timestamp.Equal(wantTS) {
-		t.Errorf("Timestamp = %v, want %v", msg.Timestamp, wantTS)
+	if HasBadge(nil, "moderator") {
+		t.Error("expected HasBadge on nil slice to be false")
 	}
 }
 
-func TestParseLinePing(t *testing.T) {
-	p, err := parseLine("PING :tmi.twitch.tv")
-	if err != nil {
-		t.Fatalf("parseLine returned error: %v", err)
-	}
-	if p.Command != "PING" {
-		t.Errorf("Command = %q, want PING", p.Command)
-	}
-	if len(p.Params) != 1 || p.Params[0] != "tmi.twitch.tv" {
-		t.Errorf("Params = %#v", p.Params)
-	}
-}
-
-func TestParseLineNoTrailing(t *testing.T) {
-	p, err := parseLine(":user!user@user.tmi.twitch.tv JOIN #achannel")
-	if err != nil {
-		t.Fatalf("parseLine returned error: %v", err)
-	}
-	if p.Command != "JOIN" {
-		t.Errorf("Command = %q, want JOIN", p.Command)
-	}
-	if len(p.Params) != 1 || p.Params[0] != "#achannel" {
-		t.Errorf("Params = %#v", p.Params)
-	}
-}
-
-func TestUnescapeTagValue(t *testing.T) {
-	cases := map[string]string{
-		`hello\sworld`: "hello world",
-		`a\:b`:         "a;b",
-		`a\\b`:         `a\b`,
-		`plain`:        "plain",
-	}
-	for in, want := range cases {
-		if got := unescapeTagValue(in); got != want {
-			t.Errorf("unescapeTagValue(%q) = %q, want %q", in, got, want)
+func TestChatMessageUnmarshal(t *testing.T) {
+	raw := `{
+		"message_id": "abc-123",
+		"chatter_user_id": "456",
+		"chatter_user_login": "someuser",
+		"chatter_user_name": "SomeUser",
+		"message": {"text": "Hello world"},
+		"message_type": "text",
+		"badges": [{"set_id": "broadcaster", "id": "1", "info": ""}],
+		"color": "#FF0000",
+		"reply": {
+			"parent_message_id": "parent-1",
+			"parent_user_id": "789",
+			"parent_user_login": "other",
+			"parent_user_name": "Other",
+			"parent_message_body": "hi"
 		}
+	}`
+
+	var m ChatMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if m.MessageID != "abc-123" || m.ChatterUserID != "456" || m.Message.Text != "Hello world" {
+		t.Errorf("ChatMessage = %+v", m)
+	}
+	if !HasBadge(m.Badges, "broadcaster") {
+		t.Error("expected broadcaster badge")
+	}
+	if m.Reply == nil || m.Reply.ParentMessageID != "parent-1" || m.Reply.ParentUserLogin != "other" {
+		t.Errorf("Reply = %+v", m.Reply)
 	}
 }
 
-func TestParseBadges(t *testing.T) {
-	got := parseBadges("broadcaster/1,subscriber/12,vip/1")
-	want := []Badge{
-		{Name: "broadcaster", Version: "1"},
-		{Name: "subscriber", Version: "12"},
-		{Name: "vip", Version: "1"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("parseBadges() = %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("parseBadges()[%d] = %#v, want %#v", i, got[i], want[i])
+func TestChatNotificationRaidUnmarshal(t *testing.T) {
+	raw := `{
+		"notice_type": "raid",
+		"raid": {
+			"user_id": "111",
+			"user_login": "raider",
+			"user_name": "Raider",
+			"viewer_count": 42
 		}
-	}
+	}`
 
-	if got := parseBadges(""); got != nil {
-		t.Errorf("parseBadges(\"\") = %#v, want nil", got)
+	var n ChatNotification
+	if err := json.Unmarshal([]byte(raw), &n); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if n.NoticeType != "raid" {
+		t.Errorf("NoticeType = %q, want raid", n.NoticeType)
+	}
+	if n.Raid == nil || n.Raid.ViewerCount != 42 || n.Raid.UserLogin != "raider" {
+		t.Errorf("Raid = %+v", n.Raid)
 	}
 }
 
-func TestNormalizeChannel(t *testing.T) {
-	cases := map[string]string{
-		"Foo":  "#foo",
-		"#Foo": "#foo",
-		" foo": "#foo",
-	}
-	for in, want := range cases {
-		if got := normalizeChannel(in); got != want {
-			t.Errorf("normalizeChannel(%q) = %q, want %q", in, got, want)
+// wsTestServer upgrades every request to a WebSocket and hands the
+// connection to onConn in its own goroutine.
+func wsTestServer(t *testing.T, onConn func(*websocket.Conn)) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
 		}
+		go onConn(conn)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func wsURL(httpURL string) string {
+	return "ws" + strings.TrimPrefix(httpURL, "http")
+}
+
+func sendJSON(t *testing.T, conn *websocket.Conn, v any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 }
 
-func TestRateLimiterAllowsBurstThenBlocks(t *testing.T) {
-	rl := newRateLimiter(2, 100*time.Millisecond)
-	ctx := context.Background()
+func TestConnectAndReceiveNotification(t *testing.T) {
+	server := wsTestServer(t, func(conn *websocket.Conn) {
+		defer conn.Close()
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{"message_type": "session_welcome"},
+			"payload":  map[string]any{"session": map[string]any{"id": "sess-1"}},
+		})
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{
+				"message_type":      "notification",
+				"subscription_type": "channel.chat.message",
+			},
+			"payload": map[string]any{"event": map[string]any{"message_id": "m1"}},
+		})
+		// Keep the connection open until the test closes it.
+		conn.ReadMessage()
+	})
 
-	start := time.Now()
-	if err := rl.Wait(ctx); err != nil {
-		t.Fatalf("Wait 1: %v", err)
+	sess, err := connectTo(context.Background(), wsURL(server.URL))
+	if err != nil {
+		t.Fatalf("connectTo returned error: %v", err)
 	}
-	if err := rl.Wait(ctx); err != nil {
-		t.Fatalf("Wait 2: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > 20*time.Millisecond {
-		t.Errorf("first two waits took %v, want near-instant", elapsed)
+	defer sess.Close()
+
+	if sess.ID() != "sess-1" {
+		t.Errorf("ID() = %q, want sess-1", sess.ID())
 	}
 
-	if err := rl.Wait(ctx); err != nil {
-		t.Fatalf("Wait 3: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed < 90*time.Millisecond {
-		t.Errorf("third wait took %v, want to block until window elapses", elapsed)
+	select {
+	case n := <-sess.Notifications():
+		if n.Type != "channel.chat.message" {
+			t.Errorf("notification Type = %q", n.Type)
+		}
+		var ev struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(n.Event, &ev); err != nil || ev.MessageID != "m1" {
+			t.Errorf("notification Event = %s (err %v)", n.Event, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notification")
 	}
 }
 
-func TestRateLimiterRespectsContext(t *testing.T) {
-	rl := newRateLimiter(1, time.Second)
-	ctx := context.Background()
-	if err := rl.Wait(ctx); err != nil {
-		t.Fatalf("Wait 1: %v", err)
-	}
+func TestSessionReconnect(t *testing.T) {
+	var second *httptest.Server
+	first := wsTestServer(t, func(conn *websocket.Conn) {
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{"message_type": "session_welcome"},
+			"payload":  map[string]any{"session": map[string]any{"id": "sess-1"}},
+		})
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{"message_type": "session_reconnect"},
+			"payload": map[string]any{
+				"session": map[string]any{"id": "sess-1", "reconnect_url": wsURL(second.URL)},
+			},
+		})
+		conn.ReadMessage()
+		conn.Close()
+	})
+	second = wsTestServer(t, func(conn *websocket.Conn) {
+		defer conn.Close()
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{"message_type": "session_welcome"},
+			"payload":  map[string]any{"session": map[string]any{"id": "sess-2"}},
+		})
+		sendJSON(t, conn, map[string]any{
+			"metadata": map[string]any{
+				"message_type":      "notification",
+				"subscription_type": "channel.chat.clear",
+			},
+			"payload": map[string]any{"event": map[string]any{}},
+		})
+		conn.ReadMessage()
+	})
 
-	ctx2, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	if err := rl.Wait(ctx2); err == nil {
-		t.Error("expected Wait to return an error once ctx is done")
+	sess, err := connectTo(context.Background(), wsURL(first.URL))
+	if err != nil {
+		t.Fatalf("connectTo returned error: %v", err)
+	}
+	defer sess.Close()
+
+	select {
+	case n := <-sess.Notifications():
+		if n.Type != "channel.chat.clear" {
+			t.Errorf("notification Type = %q, want channel.chat.clear (post-reconnect)", n.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for post-reconnect notification")
 	}
 }

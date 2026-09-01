@@ -4,6 +4,7 @@ import {
   type YouTubeDisplayMessage,
 } from "../lib/useYouTubeChatStream";
 import { sendYouTubeChatMessage } from "../lib/youtubeApi";
+import { useAutoScroll } from "../lib/useAutoScroll";
 import { YouTubeModerationControls } from "./YouTubeModerationControls";
 import { ChatComposer } from "./ChatComposer";
 
@@ -33,6 +34,7 @@ export function YouTubeChatPanel({
   const { messages, connected, streamError, markDeleted } =
     useYouTubeChatStream(liveChatId);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
 
   return (
     <div className="card chat-panel youtube-panel">
@@ -61,7 +63,7 @@ export function YouTubeChatPanel({
         </p>
       )}
 
-      <ul className="chat-log">
+      <ul className="chat-log" ref={chatLogRef} onScroll={onScroll}>
         {messages.map((m, i) => (
           <li
             key={m.id || `${m.timestamp}-${i}`}

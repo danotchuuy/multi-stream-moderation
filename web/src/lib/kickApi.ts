@@ -1,5 +1,5 @@
 import type { ChatBadge } from "./badges";
-import type { ChatReply } from "./chatDecorations";
+import type { ChatFragment, ChatReply } from "./chatDecorations";
 
 export type KickUser = {
   username: string;
@@ -56,6 +56,9 @@ export type KickChatMessage = {
   badges: ChatBadge[];
   /** The parent message this one is replying to, if any. */
   reply?: ChatReply;
+  /** Text broken into plain-text/emote pieces for rendering; absent
+   * for a message with no emotes. */
+  fragments?: ChatFragment[];
   timestamp: number;
 };
 
@@ -64,11 +67,17 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
   return text.trim() || fallback;
 }
 
-export async function sendKickChatMessage(channel: string, message: string): Promise<void> {
+/** replyTo, if given, is the message ID being replied to — threads the
+ * new message the same way replying in Kick's own chat UI does. */
+export async function sendKickChatMessage(
+  channel: string,
+  message: string,
+  replyTo?: string,
+): Promise<void> {
   const res = await fetch("/api/kick/chat/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel, message }),
+    body: JSON.stringify({ channel, message, replyTo }),
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));

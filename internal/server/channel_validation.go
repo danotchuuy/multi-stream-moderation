@@ -20,8 +20,8 @@ var kickSlugPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,25}$`)
 // normalizeTwitchChannel validates and lowercases a user-supplied Twitch
 // channel name, stripping a leading "#" if present. This is the
 // boundary check for every handler that accepts a raw channel string —
-// it runs before the value is used to join IRC, call Twitch's API, or
-// key the broadcaster-ID cache.
+// it runs before the value is used to call Twitch's API or key the
+// broadcaster-ID cache.
 func normalizeTwitchChannel(raw string) (string, error) {
 	channel := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(raw), "#"))
 	if !twitchLoginPattern.MatchString(channel) {

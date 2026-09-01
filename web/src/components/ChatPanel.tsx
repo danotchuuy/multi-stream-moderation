@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useChatStream, type DisplayMessage } from "../lib/useChatStream";
+import { useAutoScroll } from "../lib/useAutoScroll";
 import { sendChatMessage } from "../lib/api";
 import { ModerationControls } from "./ModerationControls";
 import { ChatBadges } from "./ChatBadges";
-import { ChatComposer } from "./ChatComposer";
+import { ChatMessageText } from "./ChatMessageText";
+import { ChatComposer, type ReplyTarget } from "./ChatComposer";
 import { TwitchChannelInfoMenu } from "./TwitchChannelInfoMenu";
 
 type Props = {
@@ -29,6 +31,12 @@ function canModerateMessage(m: DisplayMessage, viewerIsBroadcaster: boolean): bo
   return true;
 }
 
+/** A reply needs a real message to thread under, so system notices and
+ * already-deleted messages aren't reply targets. */
+function canReplyToMessage(m: DisplayMessage): boolean {
+  return !m.system && !m.deleted;
+}
+
 export function ChatPanel({
   channel,
   canModerate,
@@ -37,6 +45,8 @@ export function ChatPanel({
 }: Props) {
   const { messages, connected } = useChatStream(channel);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
 
   return (
     <div className="card chat-panel">
@@ -63,7 +73,7 @@ export function ChatPanel({
         </p>
       )}
 
-      <ul className="chat-log">
+      <ul className="chat-log" ref={chatLogRef} onScroll={onScroll}>
         {messages.map((m, i) => (
           <li
             key={m.id || `${m.timestamp}-${i}`}
@@ -87,16 +97,33 @@ export function ChatPanel({
                 )}
                 <ChatBadges badges={m.badges} />
                 {m.firstMessage && (
-                  <span className="chat-tag chat-tag-first" title="First message in this channel">
-                    first chat
+                  <span className="chat-tag chat-tag-first" title="Posted as a chat intro">
+                    intro
                   </span>
                 )}
                 <span className="chat-user" style={{ color: m.color || undefined }}>
                   {m.displayName || m.username}
                 </span>
                 <span className="chat-text">
-                  {m.deleted ? "message deleted" : m.text}
+                  {m.deleted ? (
+                    "message deleted"
+                  ) : (
+                    <ChatMessageText text={m.text} fragments={m.fragments} />
+                  )}
                 </span>
+                {canReplyToMessage(m) && (
+                  <button
+                    type="button"
+                    className="chat-reply-button"
+                    aria-label="Reply"
+                    title="Reply"
+                    onClick={() =>
+                      setReplyTo({ id: m.id, username: m.displayName || m.username, text: m.text })
+                    }
+                  >
+                    ↩
+                  </button>
+                )}
                 {canModerate && canModerateMessage(m, viewerIsBroadcaster) && (
                   <ModerationControls
                     channel={channel}
@@ -114,7 +141,11 @@ export function ChatPanel({
         )}
       </ul>
 
-      <ChatComposer onSend={(message) => sendChatMessage(channel, message)} />
+      <ChatComposer
+        onSend={(message, replyToId) => sendChatMessage(channel, message, replyToId)}
+        replyTo={replyTo}
+        onCancelReply={() => setReplyTo(null)}
+      />
     </div>
   );
 }

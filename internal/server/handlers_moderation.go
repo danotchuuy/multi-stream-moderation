@@ -45,6 +45,8 @@ func (s *Server) handleDeleteChatMessage(w http.ResponseWriter, r *http.Request)
 type sendMessageRequestDTO struct {
 	Channel string `json:"channel"`
 	Message string `json:"message"`
+	// ReplyTo is the message ID being replied to, if any.
+	ReplyTo string `json:"replyTo,omitempty"`
 }
 
 // handleSendChatMessage posts a new chat message to the channel, sent as
@@ -79,7 +81,7 @@ func (s *Server) handleSendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := sendChatMessage(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, message); err != nil {
+	if err := sendChatMessage(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, message, strings.TrimSpace(req.ReplyTo)); err != nil {
 		writeTwitchAPIError(w, err)
 		return
 	}

@@ -1,5 +1,5 @@
 import type { ChatBadge } from "./badges";
-import type { ChatReply } from "./chatDecorations";
+import type { ChatFragment, ChatReply } from "./chatDecorations";
 
 export type TwitchUser = {
   login: string;
@@ -59,10 +59,15 @@ export type ChatMessage = {
   subscriber: boolean;
   broadcaster: boolean;
   badges: ChatBadge[];
-  /** Whether this is the sender's first-ever message in the channel. */
+  /** Whether this message was posted as a Twitch "chat intro" — the
+   * closest available signal to a literal first-ever message, though a
+   * distinct, opt-in feature rather than the same thing. */
   firstMessage?: boolean;
   /** The parent message this one is replying to, if any. */
   reply?: ChatReply;
+  /** Text broken into plain-text/emote pieces for rendering; absent
+   * for a message with no emotes. */
+  fragments?: ChatFragment[];
   timestamp: number;
 };
 
@@ -74,11 +79,17 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
   return text.trim() || fallback;
 }
 
-export async function sendChatMessage(channel: string, message: string): Promise<void> {
+/** replyTo, if given, is the message ID being replied to — threads the
+ * new message the same way replying in Twitch's own chat UI does. */
+export async function sendChatMessage(
+  channel: string,
+  message: string,
+  replyTo?: string,
+): Promise<void> {
   const res = await fetch("/api/chat/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel, message }),
+    body: JSON.stringify({ channel, message, replyTo }),
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));

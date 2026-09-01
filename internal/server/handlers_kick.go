@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -182,6 +183,8 @@ func (s *Server) handleDeleteKickChatMessage(w http.ResponseWriter, r *http.Requ
 type kickSendMessageRequestDTO struct {
 	Channel string `json:"channel"`
 	Message string `json:"message"`
+	// ReplyTo is the message ID being replied to, if any.
+	ReplyTo string `json:"replyTo,omitempty"`
 }
 
 // handleSendKickChatMessage posts a new chat message to the channel,
@@ -215,7 +218,7 @@ func (s *Server) handleSendKickChatMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := sendKickChatMessage(r.Context(), sess.AccessToken, broadcasterID, message); err != nil {
+	if err := sendKickChatMessage(r.Context(), sess.AccessToken, broadcasterID, message, strings.TrimSpace(req.ReplyTo)); err != nil {
 		writeKickAPIError(w, err)
 		return
 	}
@@ -339,8 +342,12 @@ type kickChatMessageDTO struct {
 	Badges      []chatBadgeDTO `json:"badges"`
 	// Reply is the parent message this one is replying to, if any (see
 	// chatReplyDTO in handlers_chat.go).
-	Reply     *chatReplyDTO `json:"reply,omitempty"`
-	Timestamp int64         `json:"timestamp"`
+	Reply *chatReplyDTO `json:"reply,omitempty"`
+	// Fragments breaks Text down for rendering, substituting an inline
+	// emote image for each fragment that has one (see chatFragmentDTO
+	// in handlers_chat.go). Omitted for a message with no emotes.
+	Fragments []chatFragmentDTO `json:"fragments,omitempty"`
+	Timestamp int64             `json:"timestamp"`
 }
 
 // kickBadgeDTOs converts a chatter's Kick badges to the shared DTO
@@ -357,6 +364,46 @@ func kickBadgeDTOs(identity *kickIdentity) []chatBadgeDTO {
 			dto.Version = strconv.Itoa(b.Count)
 		}
 		out[i] = dto
+	}
+	return out
+}
+
+// kickEmoteFragmentPattern matches Kick's inline emote placeholder
+// syntax embedded directly in a message's content, e.g.
+// "[emote:39262:Prayge]" — unlike Twitch's EventSub, which
+// pre-segments a message into fragments, Kick leaves emotes as tokens
+// inside the plain text.
+var kickEmoteFragmentPattern = regexp.MustCompile(`\[emote:(\d+):([^\]]*)\]`)
+
+// kickEmoteImageURL builds an emote's CDN image URL from its ID.
+func kickEmoteImageURL(emoteID string) string {
+	return "https://files.kick.com/emotes/" + emoteID + "/fullsize"
+}
+
+// kickMessageFragments splits content into a mix of plain-text and
+// emote fragments by replacing each [emote:id:name] token with an
+// image fragment (name becomes its alt/title text). Returns nil for
+// content with no emote tokens, so an ordinary message needs no
+// fragment breakdown.
+func kickMessageFragments(content string) []chatFragmentDTO {
+	matches := kickEmoteFragmentPattern.FindAllStringSubmatchIndex(content, -1)
+	if matches == nil {
+		return nil
+	}
+
+	var out []chatFragmentDTO
+	last := 0
+	for _, m := range matches {
+		start, end := m[0], m[1]
+		if start > last {
+			out = append(out, chatFragmentDTO{Text: content[last:start]})
+		}
+		id, name := content[m[2]:m[3]], content[m[4]:m[5]]
+		out = append(out, chatFragmentDTO{Text: name, ImageURL: kickEmoteImageURL(id)})
+		last = end
+	}
+	if last < len(content) {
+		out = append(out, chatFragmentDTO{Text: content[last:]})
 	}
 	return out
 }
@@ -412,6 +459,14 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+
+	// Kick's webhooks are push-only — there's no way to fetch messages
+	// posted before this subscription started — so the best available
+	// "history" is whatever this server has already seen for this
+	// channel since it started up.
+	for _, dto := range s.kickChatHistory.recent(broadcasterID) {
+		writeSSE(w, "message", dto)
+	}
 	flusher.Flush()
 
 	keepalive := time.NewTicker(30 * time.Second)
@@ -440,40 +495,49 @@ func (s *Server) ensureKickSubscriptions(ctx context.Context, accessToken string
 	return ensureKickEventSubscription(ctx, accessToken, broadcasterID, kickEventModerationBans)
 }
 
+// kickChatMessageDTOFromEvent builds the DTO sent to the browser for a
+// chat.message.sent webhook event. It's also used to record history
+// (see Server.kickChatHistory) at the point the webhook is received,
+// rather than per-viewer in writeKickStreamEvent, since a channel with
+// several viewers connected would otherwise record the same message
+// once per viewer.
+func kickChatMessageDTOFromEvent(channel string, m kickChatMessageEvent) kickChatMessageDTO {
+	identity := m.Sender.Identity
+	ts := time.Now().UnixMilli()
+	if parsed, err := time.Parse(time.RFC3339, m.CreatedAt); err == nil {
+		ts = parsed.UnixMilli()
+	}
+	color := ""
+	if identity != nil {
+		color = identity.UsernameColor
+	}
+	dto := kickChatMessageDTO{
+		ID:          m.MessageID,
+		Channel:     channel,
+		Text:        m.Content,
+		Username:    m.Sender.Username,
+		UserID:      m.Sender.UserID,
+		Color:       color,
+		Mod:         identity.hasBadge("moderator"),
+		Subscriber:  identity.hasBadge("subscriber"),
+		Broadcaster: identity.hasBadge("broadcaster"),
+		Badges:      kickBadgeDTOs(identity),
+		Fragments:   kickMessageFragments(m.Content),
+		Timestamp:   ts,
+	}
+	if m.RepliesTo != nil {
+		dto.Reply = &chatReplyDTO{
+			Username: m.RepliesTo.Sender.Username,
+			Text:     m.RepliesTo.Content,
+		}
+	}
+	return dto
+}
+
 func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEvent) {
 	switch ev.kind {
 	case "message":
-		m := ev.message
-		identity := m.Sender.Identity
-		createdAt := m.CreatedAt
-		ts := time.Now().UnixMilli()
-		if parsed, err := time.Parse(time.RFC3339, createdAt); err == nil {
-			ts = parsed.UnixMilli()
-		}
-		color := ""
-		if identity != nil {
-			color = identity.UsernameColor
-		}
-		dto := kickChatMessageDTO{
-			ID:          m.MessageID,
-			Channel:     channel,
-			Text:        m.Content,
-			Username:    m.Sender.Username,
-			UserID:      m.Sender.UserID,
-			Color:       color,
-			Mod:         identity.hasBadge("moderator"),
-			Subscriber:  identity.hasBadge("subscriber"),
-			Broadcaster: identity.hasBadge("broadcaster"),
-			Badges:      kickBadgeDTOs(identity),
-			Timestamp:   ts,
-		}
-		if m.RepliesTo != nil {
-			dto.Reply = &chatReplyDTO{
-				Username: m.RepliesTo.Sender.Username,
-				Text:     m.RepliesTo.Content,
-			}
-		}
-		writeSSE(w, "message", dto)
+		writeSSE(w, "message", kickChatMessageDTOFromEvent(channel, ev.message))
 	case "banned":
 		b := ev.banned
 		dto := kickBannedDTO{

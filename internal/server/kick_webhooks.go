@@ -148,7 +148,7 @@ func ensureKickEventSubscription(ctx context.Context, accessToken string, broadc
 // kickBadge and kickIdentity describe a chatter's badges (moderator,
 // broadcaster, subscriber, ...), used both to decide which moderation
 // controls are safe to show for a message (mirrors how the Twitch
-// integration reads Mod/Broadcaster off IRC tags) and to render the
+// integration reads Mod/Broadcaster off EventSub badges) and to render the
 // actual badge icons next to their name. Count is set for tiered badges
 // (e.g. subscriber tenure).
 type kickBadge struct {
@@ -305,6 +305,7 @@ func (s *Server) handleKickWebhook(w http.ResponseWriter, r *http.Request) {
 		var msg kickChatMessageEvent
 		if err := json.Unmarshal(body, &msg); err == nil {
 			s.kickHub.publish(msg.Broadcaster.UserID, kickStreamEvent{kind: "message", message: msg})
+			s.kickChatHistory.add(msg.Broadcaster.UserID, kickChatMessageDTOFromEvent(msg.Broadcaster.ChannelSlug, msg))
 		}
 	case kickEventModerationBans:
 		var banned kickModerationBannedEvent

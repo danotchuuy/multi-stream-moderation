@@ -36,18 +36,38 @@ it's from the broadcaster or (for a regular moderator) another moderator
 — matching what Twitch itself allows. A text box under the chat log lets
 you send messages back, as yourself, to any channel you're watching.
 Messages are also decorated when relevant: a reply shows the parent
-message it's threaded to, a chatter's first-ever message in the channel
-is tagged "first chat", and an incoming raid gets its own highlighted
-banner row. If you're signed in as the channel's own broadcaster, an
-"Edit stream info" menu at the top of the panel lets you update the
-title and category/game — Twitch only allows the broadcaster themselves
-to do this (not a moderator, even one who can otherwise moderate the
+message it's threaded to, a chatter posting a "chat intro" is tagged
+"intro", and an incoming raid gets its own highlighted banner row. If
+you're signed in as the channel's own broadcaster, an "Edit stream info"
+menu at the top of the panel lets you update the title and
+category/game — Twitch only allows the broadcaster themselves to do
+this (not a moderator, even one who can otherwise moderate the
 channel), so the menu is hidden for anyone else.
 
-> If you connected before moderation actions (or sending messages, or
-> editing stream info) were added, sign out and reconnect once — those
-> scopes weren't requested by earlier sessions, so the affected calls
-> will 401 until you do.
+Chat is read over [EventSub](https://dev.twitch.tv/docs/chat/irc-migration/)
+(a WebSocket subscribed to `channel.chat.message` and friends), not the
+now-deprecated Twitch IRC — one EventSub session is opened per browser
+tab watching a channel, the same way this app used to open one IRC
+connection per tab. The practical differences from the old IRC-based
+version:
+
+- Watching chat now requires being signed in (EventSub always reads
+  "as" a specific user; there's no anonymous read the way IRC had). The
+  UI already required signing in before showing a chat panel at all, so
+  this isn't a visible change.
+- EventSub has no direct equivalent of IRC's "first message in this
+  channel ever" flag; the "intro" tag above is the closest available
+  signal (Twitch's separate, opt-in "chat intro" feature), not literally
+  "this chatter has never spoken here before".
+- The event that fires when a chatter's messages are cleared (ban or
+  timeout) no longer says which one it was or for how long — the system
+  notice for it is worded generically ("removed from chat") instead of
+  distinguishing "banned" from "timed out for Xm" the way it used to.
+
+> If you connected before any of the scopes below were added, sign out
+> and reconnect once — a session only carries the scopes it was
+> originally authorized with, so anything needing a newer one 401s until
+> you do.
 
 ### Kick
 
@@ -56,9 +76,9 @@ Timeout / Ban controls (Kick's own moderation rules apply the same way:
 no acting on the broadcaster, and a regular moderator can't act on
 another moderator) and the same text box for sending messages back.
 Replies are decorated the same way as Twitch's, showing the parent
-message they're threaded to — Kick's chat webhook doesn't carry a
-first-time-chatter flag or a raid/host event the way Twitch's IRC feed
-does, so those two decorations are Twitch-only. Kick's own broadcaster
+message they're threaded to — Kick's chat webhook doesn't carry a chat
+intro flag or a raid/host event the way Twitch's chat feed does, so
+those two decorations are Twitch-only. Kick's own broadcaster
 also gets the same "Edit stream info" menu at the top of the panel for
 updating the title and category — Kick's update endpoint identifies the
 channel purely from the access token, so it can likewise only ever act
@@ -263,7 +283,7 @@ internal/server/    HTTP routes and handlers: Twitch OAuth/chat/moderation (auth
                      twitch_*.go, handlers_*.go), Kick OAuth/moderation/webhooks
                      (kick_*.go, handlers_kick.go), and YouTube OAuth/moderation/
                      polling (youtube_*.go, handlers_youtube.go)
-internal/twitch/     Twitch chat (IRC) client
+internal/twitch/     Twitch chat EventSub WebSocket client
 web/                 Vite + React + TypeScript UI (Twitch, Kick, and YouTube
                      components/lib are separate; App.tsx renders them as three
                      independent panels)

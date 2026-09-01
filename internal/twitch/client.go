@@ -1,334 +1,224 @@
-// Package twitch implements a minimal client for Twitch chat (IRC) so a
-// single connection can follow and moderate several channels at once.
+// Package twitch implements a minimal client for Twitch chat over
+// EventSub's WebSocket transport. Twitch IRC (the previous transport
+// this package used) is deprecated in favor of EventSub; see
+// https://dev.twitch.tv/docs/chat/irc-migration/
 package twitch
 
 import (
-	"bufio"
 	"context"
-	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"math/rand"
-	"net"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-const (
-	defaultAddr        = "irc.chat.twitch.tv:6697"
-	defaultRateLimit   = 20
-	defaultRateWindow  = 30 * time.Second
-	defaultDialTimeout = 10 * time.Second
-)
+// websocketURL is Twitch's EventSub WebSocket endpoint. A session
+// established here is referenced (by its ID) when creating EventSub
+// subscriptions via Twitch's Helix API — creating those subscriptions is
+// the caller's job (it already owns the access token and client ID),
+// not this package's.
+const websocketURL = "wss://eventsub.wss.twitch.tv/ws"
 
-// Config configures a Client.
-type Config struct {
-	// Nick is the Twitch username to connect as, lowercase. If empty, the
-	// client connects anonymously (read-only) using a random justinfan
-	// nick, and Token is ignored.
-	Nick string
-	// Token is an OAuth token authorizing Nick, e.g. "oauth:xxxxxxxx" (the
-	// "oauth:" prefix is added automatically if missing). Required
-	// whenever Nick is set; not used for anonymous connections.
-	Token string
-	// Addr is the IRC server address to dial. Defaults to
-	// "irc.chat.twitch.tv:6697" (TLS).
-	Addr string
-	// MessageRateLimit and MessageRateWindow cap outgoing chat messages,
-	// e.g. the default of 20 messages per 30s matches Twitch's limit for
-	// non-moderator accounts. Both default when either is zero.
-	MessageRateLimit  int
-	MessageRateWindow time.Duration
+// connectTimeout bounds both the dial/handshake and the wait for the
+// initial welcome message. Without it, a slow or stalled connection to
+// Twitch falls back to gorilla/websocket's 45-second HandshakeTimeout
+// default for the dial, and blocks indefinitely waiting for the welcome
+// message — either of which would leave a viewer's "connecting..." spinner
+// stuck for far longer than a caller should have to wait to find out the
+// connection isn't going to succeed.
+const connectTimeout = 10 * time.Second
+
+// Notification is one EventSub event delivered over the WebSocket, still
+// as raw JSON — the caller decodes Event into whichever struct matches
+// Type (ChatMessage for "channel.chat.message", and so on).
+type Notification struct {
+	// Type is the EventSub subscription type, e.g. "channel.chat.message".
+	Type string
+	// Event is the notification's "event" payload.
+	Event json.RawMessage
 }
 
-// Client is a connection to Twitch chat capable of following multiple
-// channels at once. The zero value is not usable; construct with New.
-type Client struct {
-	cfg     Config
-	limiter *rateLimiter
+// Session is a live EventSub WebSocket connection. The zero value is not
+// usable; construct with Connect.
+type Session struct {
+	notifications chan Notification
+	closed        chan struct{}
+	closeOnce     sync.Once
 
-	mu       sync.Mutex
-	conn     net.Conn
-	channels map[string]struct{}
-
-	handlersMu sync.RWMutex
-	onMessage  func(Message)
-	onEvent    func(Event)
+	mu   sync.Mutex
+	conn *websocket.Conn
+	id   string
 }
 
-// New creates a Client. Call Run to connect and start processing.
-func New(cfg Config) *Client {
-	if cfg.Addr == "" {
-		cfg.Addr = defaultAddr
-	}
-	if cfg.MessageRateLimit == 0 {
-		cfg.MessageRateLimit = defaultRateLimit
-	}
-	if cfg.MessageRateWindow == 0 {
-		cfg.MessageRateWindow = defaultRateWindow
-	}
-	return &Client{
-		cfg:      cfg,
-		limiter:  newRateLimiter(cfg.MessageRateLimit, cfg.MessageRateWindow),
-		channels: make(map[string]struct{}),
-	}
+// wsEnvelope is the outer shape of every message Twitch sends over the
+// EventSub WebSocket, regardless of message_type.
+// https://dev.twitch.tv/docs/eventsub/handling-websocket-events/
+type wsEnvelope struct {
+	Metadata struct {
+		MessageType      string `json:"message_type"`
+		SubscriptionType string `json:"subscription_type"`
+	} `json:"metadata"`
+	Payload struct {
+		Session *struct {
+			ID           string `json:"id"`
+			ReconnectURL string `json:"reconnect_url"`
+		} `json:"session"`
+		Event json.RawMessage `json:"event"`
+	} `json:"payload"`
 }
 
-// OnMessage registers the handler invoked for every chat message
-// (PRIVMSG). It replaces any previously registered handler and must be
-// called before Run to avoid missing early messages.
-func (c *Client) OnMessage(fn func(Message)) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	c.onMessage = fn
+// Connect dials Twitch's EventSub WebSocket endpoint and waits for the
+// welcome message that every connection starts with. The returned
+// Session's ID must be used within 10 seconds (Twitch's limit) to create
+// at least one EventSub subscription against it, or Twitch closes the
+// connection.
+func Connect(ctx context.Context) (*Session, error) {
+	return connectTo(ctx, websocketURL)
 }
 
-// OnEvent registers the handler invoked for every IRC line, including
-// PRIVMSG. Moderation-relevant events such as timeouts/bans (CLEARCHAT)
-// and single-message deletion (CLEARMSG) surface here with their raw
-// tags; PING/PONG keepalive is handled internally and never reaches it.
-func (c *Client) OnEvent(fn func(Event)) {
-	c.handlersMu.Lock()
-	defer c.handlersMu.Unlock()
-	c.onEvent = fn
-}
+// connectTo is Connect against an arbitrary URL, split out so tests can
+// point it at a local fake EventSub server instead of Twitch's own.
+func connectTo(ctx context.Context, url string) (*Session, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
 
-// Join starts following the given channels (with or without a leading
-// "#"). Safe to call before or after Run; followed channels are
-// (re)joined automatically on every connect.
-func (c *Client) Join(channels ...string) error {
-	c.mu.Lock()
-	conn := c.conn
-	for _, ch := range channels {
-		c.channels[normalizeChannel(ch)] = struct{}{}
-	}
-	c.mu.Unlock()
-
-	if conn == nil {
-		return nil
-	}
-	return c.sendCommand("JOIN", channels...)
-}
-
-// Part stops following the given channels.
-func (c *Client) Part(channels ...string) error {
-	c.mu.Lock()
-	conn := c.conn
-	for _, ch := range channels {
-		delete(c.channels, normalizeChannel(ch))
-	}
-	c.mu.Unlock()
-
-	if conn == nil {
-		return nil
-	}
-	return c.sendCommand("PART", channels...)
-}
-
-// Channels returns the channels currently being followed.
-func (c *Client) Channels() []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := make([]string, 0, len(c.channels))
-	for ch := range c.channels {
-		out = append(out, ch)
-	}
-	return out
-}
-
-// Say sends a chat message to channel, waiting as needed to respect the
-// configured rate limit. It requires Config.Nick/Token to have been set.
-func (c *Client) Say(ctx context.Context, channel, text string) error {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return err
-	}
-	return c.send(fmt.Sprintf("PRIVMSG %s :%s", normalizeChannel(channel), text))
-}
-
-// Run connects to Twitch chat and processes messages until ctx is
-// cancelled or an unrecoverable error occurs. On connection loss it
-// reconnects with exponential backoff and rejoins every channel passed
-// to Join. Run blocks; call it in its own goroutine.
-func (c *Client) Run(ctx context.Context) error {
-	backoff := time.Second
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		_ = c.connectAndServe(ctx)
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > 30*time.Second {
-			backoff = 30 * time.Second
-		}
-	}
-}
-
-// Close closes the underlying connection, if any. A Run loop observing
-// the closed connection will attempt to reconnect unless its context is
-// also done.
-func (c *Client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.conn == nil {
-		return nil
-	}
-	err := c.conn.Close()
-	c.conn = nil
-	return err
-}
-
-func (c *Client) connectAndServe(ctx context.Context) error {
-	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: defaultDialTimeout}}
-	conn, err := dialer.DialContext(ctx, "tcp", c.cfg.Addr)
+	conn, _, err := websocket.DefaultDialer.DialContext(dialCtx, url, nil)
 	if err != nil {
-		return fmt.Errorf("twitch: dial: %w", err)
-	}
-	defer conn.Close()
-
-	c.mu.Lock()
-	c.conn = conn
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		if c.conn == conn {
-			c.conn = nil
-		}
-		c.mu.Unlock()
-	}()
-
-	stop := make(chan struct{})
-	defer close(stop)
-	go func() {
-		select {
-		case <-ctx.Done():
-			conn.Close()
-		case <-stop:
-		}
-	}()
-
-	if err := c.authenticate(); err != nil {
-		return err
+		return nil, fmt.Errorf("twitch: eventsub: dial: %w", err)
 	}
 
-	c.mu.Lock()
-	channels := make([]string, 0, len(c.channels))
-	for ch := range c.channels {
-		channels = append(channels, ch)
+	if err := conn.SetReadDeadline(time.Now().Add(connectTimeout)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("twitch: eventsub: setting read deadline: %w", err)
 	}
-	c.mu.Unlock()
-	if len(channels) > 0 {
-		if err := c.sendCommand("JOIN", channels...); err != nil {
-			return err
-		}
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("twitch: eventsub: reading welcome message: %w", err)
+	}
+	var env wsEnvelope
+	if err := json.Unmarshal(data, &env); err != nil || env.Metadata.MessageType != "session_welcome" || env.Payload.Session == nil {
+		conn.Close()
+		return nil, errors.New("twitch: eventsub: expected a welcome message")
+	}
+	// The deadline above only guards the welcome message; the read loop
+	// below should be able to sit idle indefinitely between messages.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("twitch: eventsub: clearing read deadline: %w", err)
 	}
 
-	return c.readLoop(conn)
+	s := &Session{
+		conn:          conn,
+		id:            env.Payload.Session.ID,
+		notifications: make(chan Notification),
+		closed:        make(chan struct{}),
+	}
+	go s.readLoop()
+	return s, nil
 }
 
-func (c *Client) authenticate() error {
-	nick := c.cfg.Nick
-	pass := c.cfg.Token
-	if nick == "" {
-		nick = anonymousNick()
-		pass = "SCHMOOPIIE"
-	} else if pass != "" && !strings.HasPrefix(pass, "oauth:") {
-		pass = "oauth:" + pass
-	}
-
-	return c.send(
-		"CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership",
-		"PASS "+pass,
-		"NICK "+strings.ToLower(nick),
-	)
+// ID is the session ID to reference (as transport.session_id) when
+// creating EventSub subscriptions that should deliver to this
+// connection.
+func (s *Session) ID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.id
 }
 
-// sendCommand sends cmd (JOIN, PART, ...) for each channel as a separate
-// IRC line.
-func (c *Client) sendCommand(cmd string, channels ...string) error {
-	lines := make([]string, 0, len(channels))
-	for _, ch := range channels {
-		lines = append(lines, cmd+" "+normalizeChannel(ch))
-	}
-	return c.send(lines...)
+// Notifications returns the channel notifications are delivered on. It's
+// closed when the session ends, whether from Close, a read error, or a
+// reconnect Twitch requested that this session couldn't complete.
+func (s *Session) Notifications() <-chan Notification {
+	return s.notifications
 }
 
-// send writes one or more raw IRC lines to the connection.
-func (c *Client) send(lines ...string) error {
-	c.mu.Lock()
-	conn := c.conn
-	c.mu.Unlock()
+// Close ends the session. A Read loop blocked delivering a notification
+// unblocks immediately rather than waiting for a receiver that may never
+// come.
+func (s *Session) Close() error {
+	s.closeOnce.Do(func() { close(s.closed) })
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
 	if conn == nil {
-		return fmt.Errorf("twitch: not connected")
+		return nil
 	}
-	for _, line := range lines {
-		if _, err := fmt.Fprintf(conn, "%s\r\n", line); err != nil {
-			return fmt.Errorf("twitch: write: %w", err)
-		}
-	}
-	return nil
+	return conn.Close()
 }
 
-func (c *Client) readLoop(conn net.Conn) error {
-	r := bufio.NewReader(conn)
+func (s *Session) readLoop() {
+	defer close(s.notifications)
+
 	for {
-		line, err := r.ReadString('\n')
+		s.mu.Lock()
+		conn := s.conn
+		s.mu.Unlock()
+
+		_, data, err := conn.ReadMessage()
 		if err != nil {
-			return err
+			return
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
+
+		var env wsEnvelope
+		if err := json.Unmarshal(data, &env); err != nil {
 			continue
 		}
-		c.handleLine(line)
-	}
-}
 
-func (c *Client) handleLine(line string) {
-	raw, err := parseLine(line)
-	if err != nil {
-		return
-	}
+		switch env.Metadata.MessageType {
+		case "session_welcome":
+			// Only expected here after a reconnect (the initial welcome
+			// is consumed by Connect); a new session ID doesn't disrupt
+			// anything since subscriptions already made carry over
+			// automatically.
+			if env.Payload.Session != nil {
+				s.mu.Lock()
+				s.id = env.Payload.Session.ID
+				s.mu.Unlock()
+			}
 
-	if raw.Command == "PING" {
-		_ = c.send("PONG :tmi.twitch.tv")
-		return
-	}
+		case "notification":
+			select {
+			case s.notifications <- Notification{Type: env.Metadata.SubscriptionType, Event: env.Payload.Event}:
+			case <-s.closed:
+				return
+			}
 
-	if raw.Command == "PRIVMSG" {
-		c.handlersMu.RLock()
-		fn := c.onMessage
-		c.handlersMu.RUnlock()
-		if fn != nil {
-			fn(newMessage(raw, line))
+		case "session_reconnect":
+			// Twitch is about to close this connection (e.g. for
+			// maintenance) and wants us to move to a new one; existing
+			// subscriptions transfer automatically, so nothing else to
+			// redo. https://dev.twitch.tv/docs/eventsub/handling-websocket-events/#reconnect-message
+			if env.Payload.Session == nil || env.Payload.Session.ReconnectURL == "" {
+				return
+			}
+			newConn, _, err := websocket.DefaultDialer.Dial(env.Payload.Session.ReconnectURL, nil)
+			if err != nil {
+				return
+			}
+			old := conn
+			s.mu.Lock()
+			s.conn = newConn
+			s.mu.Unlock()
+			old.Close()
+
+		case "session_keepalive":
+			// No-op: receiving anything at all already proves the
+			// connection is alive.
+
+		case "revocation":
+			// A subscription was revoked (the viewer signed out
+			// elsewhere, was banned, etc.) — surface it like any other
+			// notification so the caller can decide whether to stop.
+			select {
+			case s.notifications <- Notification{Type: "revocation:" + env.Metadata.SubscriptionType, Event: env.Payload.Event}:
+			case <-s.closed:
+				return
+			}
 		}
 	}
-
-	c.handlersMu.RLock()
-	fn := c.onEvent
-	c.handlersMu.RUnlock()
-	if fn != nil {
-		fn(newEvent(raw, line))
-	}
-}
-
-func normalizeChannel(channel string) string {
-	channel = strings.ToLower(strings.TrimSpace(channel))
-	if !strings.HasPrefix(channel, "#") {
-		channel = "#" + channel
-	}
-	return channel
-}
-
-func anonymousNick() string {
-	return fmt.Sprintf("justinfan%d", rand.Intn(80000)+1000)
 }

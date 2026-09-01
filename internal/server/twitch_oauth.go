@@ -28,10 +28,14 @@ const (
 	//     category. Twitch requires broadcaster_id to match the token's
 	//     own user ID for this, so it only ever works for a viewer's own
 	//     channel, never one they merely moderate.
+	//   - user:read:chat: read a channel's chat via EventSub — Twitch IRC
+	//     is deprecated (https://dev.twitch.tv/docs/chat/irc-migration/)
+	//     and its anonymous, no-login read no longer has an equivalent;
+	//     EventSub always reads chat "as" a specific signed-in user.
 	// Sessions authorized before these were added won't have them; the
 	// affected calls fail with a 401 until the user reconnects their
 	// Twitch account.
-	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users user:write:chat channel:manage:broadcast"
+	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users user:write:chat channel:manage:broadcast user:read:chat"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}

@@ -183,7 +183,10 @@
   list-style: none;
   padding: 0;
   margin: 0;
-  max-height: 60vh;
+  /* A fixed height (not max-height) so the log stays a constant size
+     as messages arrive/scroll off, rather than growing and shrinking
+     with however much content currently fits. */
+  height: 60vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -226,6 +229,13 @@
   flex: 1;
 }
 
+.chat-emote {
+  height: 1.6em;
+  width: auto;
+  vertical-align: middle;
+  margin: -0.2em 0.05em;
+}
+
 .chat-empty {
   color: var(--faint-fg);
   font-style: italic;
@@ -262,6 +272,35 @@
 
 .chat-reply-context strong {
   color: var(--control-fg);
+}
+
+.chat-reply-button {
+  margin-left: 0.5rem;
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+
+/* Only reveal the reply icon while hovering (or keyboard-focusing) its
+   own message row, rather than always showing it and cluttering a fast
+   -moving chat log. */
+.chat-log li:hover .chat-reply-button,
+.chat-reply-button:focus-visible {
+  opacity: 1;
+}
+
+.chat-reply-button:hover {
+  color: #9146ff;
+}
+
+.kick-panel .chat-reply-button:hover {
+  color: #2e9c00;
 }
 
 .chat-tag {
@@ -330,6 +369,17 @@
 
 .chat-composer {
   margin-top: 0.75rem;
+}
+
+.chat-composer-reply {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  word-break: break-word;
+}
+
+.chat-composer-reply strong {
+  color: var(--control-fg);
 }
 
 .chat-composer-row {

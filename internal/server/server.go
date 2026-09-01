@@ -104,6 +104,12 @@ type Server struct {
 	kickChannelIDsMu sync.Mutex
 	kickChannelIDs   map[string]int64
 
+	// twitchChatHistory and kickChatHistory hold the last few chat
+	// messages seen per channel, so a newly connected viewer gets some
+	// context instead of a blank chat log. See chat_history.go.
+	twitchChatHistory *chatHistoryCache[string, chatMessageDTO]
+	kickChatHistory   *chatHistoryCache[int64, kickChatMessageDTO]
+
 	youtubeAuth *youtubeAuthStore
 
 	// youtubeChatConn is a shared gRPC connection to YouTube's live chat
@@ -126,6 +132,9 @@ func New(cfg Config) *Server {
 		kickHub:        newKickHub(),
 		kickPublicKey:  &kickPublicKeyCache{},
 		kickChannelIDs: make(map[string]int64),
+
+		twitchChatHistory: newChatHistoryCache[string, chatMessageDTO](chatHistoryLimit, func(m chatMessageDTO) string { return m.ID }),
+		kickChatHistory:   newChatHistoryCache[int64, kickChatMessageDTO](chatHistoryLimit, func(m kickChatMessageDTO) string { return m.ID }),
 
 		youtubeAuth: newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
 	}
