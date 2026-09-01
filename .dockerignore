@@ -1,0 +1,20 @@
+# Keep the build context small and avoid ever sending local secrets or
+# session data into a build.
+
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+LICENSE
+
+bin/
+*.test
+*.out
+
+web/node_modules/
+web/dist/
+
+.idea/
+.vscode/
+.DS_Store

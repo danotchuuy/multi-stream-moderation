@@ -188,6 +188,54 @@ make build     # builds web/dist, then bin/server
 make run       # builds and runs bin/server, which serves web/dist directly on :8080
 ```
 
+## Docker
+
+The `Dockerfile` builds a single multi-arch image (Go API + built UI,
+served as one binary) using [`docker buildx`](https://docs.docker.com/build/building/multi-platform/) —
+a plain `docker build` can't produce it, since the Dockerfile relies on
+buildx-only features (`--platform=$BUILDPLATFORM` cross-compilation,
+build cache mounts). The Makefile targets below always invoke
+`docker buildx build` for you.
+
+```sh
+make docker-build-local   # build for your machine only, load into Docker to test
+make docker-build         # validate the multi-arch build (linux/amd64 + linux/arm64)
+make docker-push          # build multi-arch and push to Docker Hub (docker login first)
+```
+
+Each one applies two tags in the same build (buildx builds once, tags
+twice — not two separate builds): the moving `DOCKER_TAG` below, and an
+immutable, date-coded `DOCKER_DATE_TAG` (`YYYY.MM.DD`, UTC), so you can
+always pin to a specific day's build even after `latest` moves on.
+
+All three accept overrides, e.g.:
+
+```sh
+make docker-push DOCKER_IMAGE=youruser/multi-stream-moderation DOCKER_TAG=v1.0.0
+```
+
+| Variable           | Default                              |
+| ------------------ | ------------------------------------- |
+| `DOCKER_IMAGE`      | `changeme/multi-stream-moderation` — set this to your own Docker Hub repo |
+| `DOCKER_TAG`        | `latest` |
+| `DOCKER_DATE_TAG`   | today's date, e.g. `2026.09.01` — override if you need a second same-day build to get its own tag |
+| `DOCKER_PLATFORMS`  | `linux/amd64,linux/arm64` |
+
+A multi-arch result can't be loaded into your local Docker image store
+(only pushed, or built one platform at a time) — `docker-build` only
+proves the build succeeds on every platform; use `docker-build-local` to
+actually run one.
+
+The image runs as a non-root user on a minimal (`distroless`) base and
+reads the same environment variables documented above (`TWITCH_CLIENT_ID`,
+`KICK_CLIENT_ID`, `YOUTUBE_CLIENT_ID`, etc. — see `docker run --env-file`).
+Session stores default to `/data` inside the container; mount a volume
+there to keep users signed in across container restarts:
+
+```sh
+docker run -p 8080:8080 --env-file .env -v msm-data:/data changeme/multi-stream-moderation
+```
+
 ## Layout
 
 ```
@@ -200,4 +248,6 @@ internal/twitch/     Twitch chat (IRC) client
 web/                 Vite + React + TypeScript UI (Twitch, Kick, and YouTube
                      components/lib are separate; App.tsx renders them as three
                      independent panels)
+Dockerfile           multi-arch (buildx) image: builds web/dist and the Go binary,
+                     runs them as one non-root distroless container
 ```
