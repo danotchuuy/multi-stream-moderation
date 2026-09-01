@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Multi-Stream Moderation</title>
+    <script>
+      // Applies the theme before first paint so there's no flash of the
+      // wrong mode. Kept in sync with the same logic in src/lib/useTheme.ts.
+      (function () {
+        try {
+          var stored = localStorage.getItem("msm.theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          // Storage disabled/unavailable: fall back to the CSS default.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

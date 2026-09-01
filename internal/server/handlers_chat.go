@@ -6,24 +6,43 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/danotchuuy/multi-stream-moderation/internal/twitch"
 )
 
 type chatMessageDTO struct {
-	ID          string `json:"id"`
-	Channel     string `json:"channel"`
-	Text        string `json:"text"`
-	Username    string `json:"username"`
-	DisplayName string `json:"displayName"`
-	UserID      string `json:"userId"`
-	Color       string `json:"color"`
-	Mod         bool   `json:"mod"`
-	Subscriber  bool   `json:"subscriber"`
-	Broadcaster bool   `json:"broadcaster"`
-	Timestamp   int64  `json:"timestamp"`
+	ID          string         `json:"id"`
+	Channel     string         `json:"channel"`
+	Text        string         `json:"text"`
+	Username    string         `json:"username"`
+	DisplayName string         `json:"displayName"`
+	UserID      string         `json:"userId"`
+	Color       string         `json:"color"`
+	Mod         bool           `json:"mod"`
+	Subscriber  bool           `json:"subscriber"`
+	Broadcaster bool           `json:"broadcaster"`
+	Badges      []chatBadgeDTO `json:"badges"`
+	Timestamp   int64          `json:"timestamp"`
+}
+
+// chatBadgeDTO is the shared badge shape sent to the browser for both
+// Twitch and Kick messages, so the frontend can use one badge-rendering
+// component for both chat panels.
+type chatBadgeDTO struct {
+	Name string `json:"name"`
+	// Version distinguishes tiers within a badge — for Twitch, a
+	// subscriber badge's Version is their sub month count; for Kick, a
+	// badge's optional count (also usually a subscriber tenure).
+	Version string `json:"version,omitempty"`
+}
+
+func twitchBadgeDTOs(badges []twitch.Badge) []chatBadgeDTO {
+	out := make([]chatBadgeDTO, len(badges))
+	for i, b := range badges {
+		out[i] = chatBadgeDTO{Name: b.Name, Version: b.Version}
+	}
+	return out
 }
 
 // clearMsgDTO mirrors a Twitch CLEARMSG event: a single chat message was
@@ -57,9 +76,9 @@ type streamEvent struct {
 // events. One IRC connection is created per request; this is fine for a
 // locally run, single-viewer tool.
 func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
-	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
-	if channel == "" {
-		http.Error(w, "missing channel query parameter", http.StatusBadRequest)
+	channel, err := normalizeTwitchChannel(r.URL.Query().Get("channel"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -148,6 +167,7 @@ func writeStreamEvent(w http.ResponseWriter, ev streamEvent) {
 			Mod:         m.Mod,
 			Subscriber:  m.Subscriber,
 			Broadcaster: m.Broadcaster,
+			Badges:      twitchBadgeDTOs(m.Badges),
 			Timestamp:   m.Timestamp.UnixMilli(),
 		})
 	case "clearmsg":

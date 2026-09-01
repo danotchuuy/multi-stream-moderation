@@ -1,3 +1,5 @@
+import type { ChatBadge } from "./badges";
+
 export type TwitchUser = {
   login: string;
   displayName: string;
@@ -55,6 +57,7 @@ export type ChatMessage = {
   mod: boolean;
   subscriber: boolean;
   broadcaster: boolean;
+  badges: ChatBadge[];
   timestamp: number;
 };
 

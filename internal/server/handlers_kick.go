@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -204,12 +205,17 @@ func (s *Server) handleBanKickUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Channel == "" || req.UserID == 0 {
-		http.Error(w, "channel and userId are required", http.StatusBadRequest)
+	if req.UserID == 0 {
+		http.Error(w, "userId is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeKickChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, req.Channel)
+	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, channel)
 	if err != nil {
 		http.Error(w, "could not resolve channel", http.StatusBadGateway)
 		return
@@ -236,16 +242,21 @@ func (s *Server) handleTimeoutKickUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Channel == "" || req.UserID == 0 {
-		http.Error(w, "channel and userId are required", http.StatusBadRequest)
+	if req.UserID == 0 {
+		http.Error(w, "userId is required", http.StatusBadRequest)
 		return
 	}
 	if req.DurationMinutes <= 0 || req.DurationMinutes > 10080 {
 		http.Error(w, "durationMinutes must be between 1 and 10080", http.StatusBadRequest)
 		return
 	}
+	channel, err := normalizeKickChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, req.Channel)
+	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, channel)
 	if err != nil {
 		http.Error(w, "could not resolve channel", http.StatusBadGateway)
 		return
@@ -273,16 +284,35 @@ func writeKickAPIError(w http.ResponseWriter, err error) {
 // --- Chat stream -----------------------------------------------------------
 
 type kickChatMessageDTO struct {
-	ID          string `json:"id"`
-	Channel     string `json:"channel"`
-	Text        string `json:"text"`
-	Username    string `json:"username"`
-	UserID      int64  `json:"userId"`
-	Color       string `json:"color"`
-	Mod         bool   `json:"mod"`
-	Subscriber  bool   `json:"subscriber"`
-	Broadcaster bool   `json:"broadcaster"`
-	Timestamp   int64  `json:"timestamp"`
+	ID          string         `json:"id"`
+	Channel     string         `json:"channel"`
+	Text        string         `json:"text"`
+	Username    string         `json:"username"`
+	UserID      int64          `json:"userId"`
+	Color       string         `json:"color"`
+	Mod         bool           `json:"mod"`
+	Subscriber  bool           `json:"subscriber"`
+	Broadcaster bool           `json:"broadcaster"`
+	Badges      []chatBadgeDTO `json:"badges"`
+	Timestamp   int64          `json:"timestamp"`
+}
+
+// kickBadgeDTOs converts a chatter's Kick badges to the shared DTO
+// shape used for both Twitch and Kick messages (see chatBadgeDTO in
+// handlers_chat.go).
+func kickBadgeDTOs(identity *kickIdentity) []chatBadgeDTO {
+	if identity == nil {
+		return nil
+	}
+	out := make([]chatBadgeDTO, len(identity.Badges))
+	for i, b := range identity.Badges {
+		dto := chatBadgeDTO{Name: b.Type}
+		if b.Count > 0 {
+			dto.Version = strconv.Itoa(b.Count)
+		}
+		out[i] = dto
+	}
+	return out
 }
 
 type kickBannedDTO struct {
@@ -305,9 +335,9 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
-	if channel == "" {
-		http.Error(w, "missing channel query parameter", http.StatusBadRequest)
+	channel, err := normalizeKickChannel(r.URL.Query().Get("channel"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -388,6 +418,7 @@ func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEv
 			Mod:         identity.hasBadge("moderator"),
 			Subscriber:  identity.hasBadge("subscriber"),
 			Broadcaster: identity.hasBadge("broadcaster"),
+			Badges:      kickBadgeDTOs(identity),
 			Timestamp:   ts,
 		})
 	case "banned":

@@ -12,17 +12,43 @@ import {
   kickLogout,
   type KickUser,
 } from "./lib/kickApi";
+import {
+  fetchYouTubeSession,
+  youtubeLogout,
+  type YouTubeLiveChatRef,
+  type YouTubeUser,
+} from "./lib/youtubeApi";
 import { ConnectTwitch } from "./components/ConnectTwitch";
 import { ChannelPicker } from "./components/ChannelPicker";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConnectKick } from "./components/ConnectKick";
 import { KickChannelPicker } from "./components/KickChannelPicker";
 import { KickChatPanel } from "./components/KickChatPanel";
+import { ConnectYouTube } from "./components/ConnectYouTube";
+import { YouTubeStreamPicker } from "./components/YouTubeStreamPicker";
+import { YouTubeChatPanel } from "./components/YouTubeChatPanel";
+import { ThemeToggle } from "./components/ThemeToggle";
+import { useTheme } from "./lib/useTheme";
 
 const CHANNEL_STORAGE_KEY = "msm.selectedChannel";
 const KICK_CHANNEL_STORAGE_KEY = "msm.kick.selectedChannel";
+const YOUTUBE_STREAM_STORAGE_KEY = "msm.youtube.selectedStream";
+
+function loadStoredYouTubeStream(): YouTubeLiveChatRef | null {
+  const raw = localStorage.getItem(YOUTUBE_STREAM_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as YouTubeLiveChatRef;
+    if (parsed.liveChatId && parsed.channelId) return parsed;
+  } catch {
+    // Ignore a corrupted/old-shape value and just start fresh.
+  }
+  return null;
+}
 
 function App() {
+  const { theme, toggleTheme } = useTheme();
+
   // --- Twitch ---
   const [user, setUser] = useState<TwitchUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,15 +71,26 @@ function App() {
     localStorage.getItem(KICK_CHANNEL_STORAGE_KEY),
   );
 
+  // --- YouTube ---
+  const [youtubeUser, setYoutubeUser] = useState<YouTubeUser | null>(null);
+  const [youtubeLoading, setYoutubeLoading] = useState(true);
+  const [youtubeAuthError, setYoutubeAuthError] = useState<string | null>(null);
+  const [youtubeStream, setYoutubeStream] = useState<YouTubeLiveChatRef | null>(
+    loadStoredYouTubeStream,
+  );
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const err = params.get("twitch_error");
     const kickErr = params.get("kick_error");
-    if (err || kickErr) {
+    const youtubeErr = params.get("youtube_error");
+    if (err || kickErr || youtubeErr) {
       if (err) setAuthError(err);
       if (kickErr) setKickAuthError(kickErr);
+      if (youtubeErr) setYoutubeAuthError(youtubeErr);
       params.delete("twitch_error");
       params.delete("kick_error");
+      params.delete("youtube_error");
       const query = params.toString();
       window.history.replaceState(
         {},
@@ -71,6 +108,11 @@ function App() {
       .then((session) => setKickUser(session.user ?? null))
       .catch(() => setKickUser(null))
       .finally(() => setKickLoading(false));
+
+    fetchYouTubeSession()
+      .then((session) => setYoutubeUser(session.user ?? null))
+      .catch(() => setYoutubeUser(null))
+      .finally(() => setYoutubeLoading(false));
   }, []);
 
   useEffect(() => {
@@ -120,6 +162,22 @@ function App() {
     handleChangeKickChannel();
   }, [handleChangeKickChannel]);
 
+  const handleSelectYouTubeStream = useCallback((ref: YouTubeLiveChatRef) => {
+    setYoutubeStream(ref);
+    localStorage.setItem(YOUTUBE_STREAM_STORAGE_KEY, JSON.stringify(ref));
+  }, []);
+
+  const handleChangeYouTubeStream = useCallback(() => {
+    setYoutubeStream(null);
+    localStorage.removeItem(YOUTUBE_STREAM_STORAGE_KEY);
+  }, []);
+
+  const handleYouTubeSignOut = useCallback(async () => {
+    await youtubeLogout();
+    setYoutubeUser(null);
+    handleChangeYouTubeStream();
+  }, [handleChangeYouTubeStream]);
+
   // A viewer can moderate a channel if it's their own, or if it's in
   // their list of moderated channels from Twitch. Twitch enforces this
   // authoritatively on every moderation call; this only decides whether
@@ -147,9 +205,19 @@ function App() {
     !!kickChannel &&
     kickUser.username.toLowerCase() === kickChannel.toLowerCase();
 
+  // Same story as Kick: no "channels I moderate" listing, so this is
+  // only reliably knowable for the viewer's own channel.
+  const youtubeViewerIsBroadcaster =
+    !!youtubeUser &&
+    !!youtubeStream &&
+    youtubeStream.channelId === youtubeUser.channelId;
+
   return (
     <main className="app">
-      <h1>Multi-Stream Moderation</h1>
+      <div className="app-header">
+        <h1>Multi-Stream Moderation</h1>
+        <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      </div>
 
       <div className="panels">
         <section className="platform-panel">
@@ -190,6 +258,28 @@ function App() {
               canModerate
               viewerIsBroadcaster={kickViewerIsBroadcaster}
               onChangeChannel={handleChangeKickChannel}
+            />
+          )}
+        </section>
+
+        <section className="platform-panel">
+          {youtubeLoading && <p>Loading...</p>}
+          {!youtubeLoading && !youtubeUser && (
+            <ConnectYouTube error={youtubeAuthError} />
+          )}
+          {!youtubeLoading && youtubeUser && !youtubeStream && (
+            <YouTubeStreamPicker
+              user={youtubeUser}
+              onSelect={handleSelectYouTubeStream}
+              onSignOut={handleYouTubeSignOut}
+            />
+          )}
+          {!youtubeLoading && youtubeUser && youtubeStream && (
+            <YouTubeChatPanel
+              liveChatId={youtubeStream.liveChatId}
+              canModerate
+              viewerIsBroadcaster={youtubeViewerIsBroadcaster}
+              onChangeStream={handleChangeYouTubeStream}
             />
           )}
         </section>

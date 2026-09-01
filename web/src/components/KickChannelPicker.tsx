@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { fetchOwnKickChannel, type KickUser } from "../lib/kickApi";
+import {
+  normalizeKickChannel,
+  KICK_CHANNEL_HELP,
+} from "../lib/channelValidation";
 
 type Props = {
   user: KickUser;
@@ -11,6 +15,7 @@ export function KickChannelPicker({ user, onSelect, onSignOut }: Props) {
   const [ownChannel, setOwnChannel] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [manualChannel, setManualChannel] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchOwnKickChannel()
@@ -61,8 +66,13 @@ export function KickChannelPicker({ user, onSelect, onSignOut }: Props) {
         className="manual-channel"
         onSubmit={(e) => {
           e.preventDefault();
-          const name = manualChannel.trim();
-          if (name) onSelect(name);
+          const normalized = normalizeKickChannel(manualChannel);
+          if (!normalized) {
+            setManualError(`That doesn't look like a Kick channel name. ${KICK_CHANNEL_HELP}`);
+            return;
+          }
+          setManualError(null);
+          onSelect(normalized);
         }}
       >
         <label htmlFor="kick-channel-input">Watch a channel by name</label>
@@ -70,7 +80,10 @@ export function KickChannelPicker({ user, onSelect, onSignOut }: Props) {
           <input
             id="kick-channel-input"
             value={manualChannel}
-            onChange={(e) => setManualChannel(e.target.value)}
+            onChange={(e) => {
+              setManualChannel(e.target.value);
+              setManualError(null);
+            }}
             placeholder="channel name"
             autoComplete="off"
           />
@@ -78,6 +91,7 @@ export function KickChannelPicker({ user, onSelect, onSignOut }: Props) {
             Watch
           </button>
         </div>
+        {manualError && <p className="error">{manualError}</p>}
       </form>
     </div>
   );

@@ -60,6 +60,16 @@ which means:
   one), so the channel picker only offers your own channel as a
   one-click pick; anything else is typed in manually.
 
+Below the Kick chat panel, a **Repeated messages** panel appears
+whenever 2+ different chatters send the exact same message (trimmed,
+case-insensitive) within a 5-minute window — a common raid/copypasta
+pattern — with Delete all / Timeout all / Ban all buttons that act on
+every message or sender in that group at once. It's computed entirely
+client-side from the messages already streaming into the panel, so it
+only sees spam that happens while you're watching, and it never groups
+the broadcaster's messages or (for a regular moderator) other
+moderators'.
+
 Setup:
 
 1. Create a Kick app at https://kick.com/settings/developer. Add
@@ -77,6 +87,52 @@ If you skip the tunnel/webhook setup, Twitch still works fully — Kick's
 panel just won't receive any messages (the "Connect Kick account" step
 still works either way).
 
+### YouTube
+
+YouTube live chat gets its own third panel, with the same Delete /
+Timeout / Ban controls (no acting on the broadcaster, and a regular
+moderator can't act on another moderator). A few things work differently
+here too:
+
+- A YouTube **channel** doesn't have one persistent chat the way a
+  Twitch/Kick channel does — each individual broadcast has its own. So
+  instead of picking a channel, you either watch your own current live
+  stream (one click, if you're live) or paste a live stream's URL or
+  video ID.
+- YouTube's Data API has no push mechanism for chat (no IRC, no
+  webhooks) — this app polls `liveChatMessages.list` server-side on your
+  behalf and relays new messages over the same SSE mechanism the other
+  two panels use. It also means, unlike Twitch's CLEARMSG or Kick's ban
+  webhook, this app gets no signal when a message is deleted or a user
+  banned from elsewhere — the panel only reflects moderation actions you
+  take from it.
+- Signing in is required just to watch, like Kick (there's no anonymous
+  read).
+- The default free quota is 10,000 units/day; each poll costs ~1 unit
+  and this app polls every 2-15 seconds (YouTube tells it the interval),
+  so normal use for a personal moderation tool comfortably fits.
+
+Setup:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/),
+   create a project (or use an existing one), enable the **YouTube Data
+   API v3**, and create an **OAuth client ID** (Web application) under
+   *APIs & Services → Credentials*. Add
+   `http://localhost:8080/api/auth/youtube/callback` as an authorized
+   redirect URI.
+2. On the *OAuth consent screen*, add your own Google account as a test
+   user (unless/until you publish the app) — otherwise Google will
+   refuse to let it sign you in.
+3. Export the credentials:
+
+   ```sh
+   export YOUTUBE_CLIENT_ID=...
+   export YOUTUBE_CLIENT_SECRET=...
+   ```
+
+Twitch and Kick both work fully without any of this — YouTube's panel
+just shows "Connect YouTube account" until it's configured.
+
 ### Staying signed in across restarts
 
 Once authorized, the server persists your session (including the Twitch
@@ -86,20 +142,21 @@ access/refresh tokens), encrypted, to a file — by default
 `make run` reloads it, refreshing the access token automatically if it
 has expired, so you won't be sent back through the Twitch login each
 time. Override the location with `SESSION_STORE_FILE`, or delete the
-file (or hit "Sign out" in the UI) to force a fresh login. Kick sessions
-work the same way, in a separate file (`kick-sessions.enc` by default,
-override with `KICK_SESSION_STORE_FILE`) and a separate cookie, so
-signing out of one platform doesn't affect the other.
+file (or hit "Sign out" in the UI) to force a fresh login. Kick and
+YouTube sessions work the same way, each in their own file
+(`kick-sessions.enc` / `youtube-sessions.enc` by default, override with
+`KICK_SESSION_STORE_FILE` / `YOUTUBE_SESSION_STORE_FILE`) and their own
+cookie, so signing out of one platform doesn't affect the others.
 
 ## Security: BFF (Backend-For-Frontend) token handling
 
-The browser never sees a Twitch or Kick access/refresh token — it only
-ever holds an opaque session cookie (one per platform), and every
-Twitch/Kick API call (including OAuth token exchange/refresh and
-moderation actions) happens inside `internal/server`, using the client
-secret and tokens that stay server-side. This is the standard BFF
-pattern for OAuth in a browser app, and it's what makes each of the
-following meaningful:
+The browser never sees a Twitch, Kick, or YouTube access/refresh token —
+it only ever holds an opaque session cookie (one per platform), and
+every API call to those platforms (including OAuth token
+exchange/refresh and moderation actions) happens inside
+`internal/server`, using the client secret and tokens that stay
+server-side. This is the standard BFF pattern for OAuth in a browser
+app, and it's what makes each of the following meaningful:
 
 - **Session cookie**: `HttpOnly` (JavaScript, and so XSS, can't read
   it), `SameSite=Lax` (not sent on cross-site requests, which covers
@@ -136,9 +193,11 @@ make run       # builds and runs bin/server, which serves web/dist directly on :
 ```
 cmd/server/        entrypoint
 internal/server/    HTTP routes and handlers: Twitch OAuth/chat/moderation (auth.go,
-                     twitch_*.go, handlers_*.go) and Kick OAuth/moderation/webhooks
-                     (kick_*.go, handlers_kick.go)
+                     twitch_*.go, handlers_*.go), Kick OAuth/moderation/webhooks
+                     (kick_*.go, handlers_kick.go), and YouTube OAuth/moderation/
+                     polling (youtube_*.go, handlers_youtube.go)
 internal/twitch/     Twitch chat (IRC) client
-web/                 Vite + React + TypeScript UI (Twitch and Kick components/lib
-                     are separate; App.tsx renders them as two independent panels)
+web/                 Vite + React + TypeScript UI (Twitch, Kick, and YouTube
+                     components/lib are separate; App.tsx renders them as three
+                     independent panels)
 ```

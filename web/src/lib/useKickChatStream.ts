@@ -75,6 +75,7 @@ export function useKickChatStream(channel: string | null) {
           mod: false,
           subscriber: false,
           broadcaster: false,
+          badges: [],
           timestamp: Date.now(),
           system: true,
         };

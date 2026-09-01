@@ -1,3 +1,5 @@
+import type { ChatBadge } from "./badges";
+
 export type KickUser = {
   username: string;
   profileImageUrl: string;
@@ -50,6 +52,7 @@ export type KickChatMessage = {
   mod: boolean;
   subscriber: boolean;
   broadcaster: boolean;
+  badges: ChatBadge[];
   timestamp: number;
 };
 

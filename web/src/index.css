@@ -1,7 +1,52 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted-fg: #666666;
+  --faint-fg: #999999;
+  --border: #dddddd;
+  --border-soft: #eeeeee;
+  --input-border: #cccccc;
+  --card-bg: #ffffff;
+  --stripe-bg: #fafafa;
+  --chip-bg: #f0f0f0;
+  --control-bg: #ffffff;
+  --control-fg: #333333;
+  --error: #c0392b;
+  --error-border: #e7b3ac;
+  --success: #2ecc71;
+  --spam-border: #e8b800;
+  --spam-bg: #fffbea;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #14161a;
+  --fg: #e8e8e8;
+  --muted-fg: #a3a3a3;
+  --faint-fg: #8a8a8a;
+  --border: #33363c;
+  --border-soft: #2a2c31;
+  --input-border: #44474e;
+  --card-bg: #1c1f24;
+  --stripe-bg: #22252a;
+  --chip-bg: #2a2d33;
+  --control-bg: #22252a;
+  --control-fg: #e8e8e8;
+  --error: #ff6b5b;
+  --error-border: #6b2f28;
+  --success: #38d982;
+  --spam-border: #a8860a;
+  --spam-bg: #2a2413;
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }

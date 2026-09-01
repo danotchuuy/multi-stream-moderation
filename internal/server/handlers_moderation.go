@@ -17,10 +17,14 @@ func (s *Server) handleDeleteChatMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
 	messageID := strings.TrimSpace(r.URL.Query().Get("messageId"))
-	if channel == "" || messageID == "" {
-		http.Error(w, "channel and messageId query parameters are required", http.StatusBadRequest)
+	if messageID == "" {
+		http.Error(w, "messageId query parameter is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeTwitchChannel(r.URL.Query().Get("channel"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -64,12 +68,17 @@ func (s *Server) handleBanUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Channel == "" || req.UserID == "" {
-		http.Error(w, "channel and userId are required", http.StatusBadRequest)
+	if req.UserID == "" {
+		http.Error(w, "userId is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeTwitchChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, req.Channel)
+	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, channel)
 	if err != nil {
 		http.Error(w, "could not resolve channel", http.StatusBadGateway)
 		return
@@ -96,16 +105,21 @@ func (s *Server) handleTimeoutUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Channel == "" || req.UserID == "" {
-		http.Error(w, "channel and userId are required", http.StatusBadRequest)
+	if req.UserID == "" {
+		http.Error(w, "userId is required", http.StatusBadRequest)
 		return
 	}
 	if req.DurationSeconds <= 0 {
 		http.Error(w, "durationSeconds must be greater than zero", http.StatusBadRequest)
 		return
 	}
+	channel, err := normalizeTwitchChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, req.Channel)
+	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, channel)
 	if err != nil {
 		http.Error(w, "could not resolve channel", http.StatusBadGateway)
 		return

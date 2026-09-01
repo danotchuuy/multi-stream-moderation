@@ -117,3 +117,27 @@ func TestKickBadgeHelpers(t *testing.T) {
 		t.Error("expected hasBadge(broadcaster) to be false")
 	}
 }
+
+func TestKickBadgeDTOs(t *testing.T) {
+	if got := kickBadgeDTOs(nil); got != nil {
+		t.Errorf("kickBadgeDTOs(nil) = %#v, want nil", got)
+	}
+
+	identity := &kickIdentity{Badges: []kickBadge{
+		{Type: "moderator"},
+		{Type: "subscriber", Count: 6},
+	}}
+	got := kickBadgeDTOs(identity)
+	want := []chatBadgeDTO{
+		{Name: "moderator"},
+		{Name: "subscriber", Version: "6"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("kickBadgeDTOs() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("kickBadgeDTOs()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}

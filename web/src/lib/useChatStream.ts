@@ -98,6 +98,7 @@ export function useChatStream(channel: string | null) {
           mod: false,
           subscriber: false,
           broadcaster: false,
+          badges: [],
           timestamp: Date.now(),
           system: true,
         };

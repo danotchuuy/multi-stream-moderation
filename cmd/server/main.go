@@ -31,19 +31,28 @@ func main() {
 		kickRedirectURL = "http://localhost:" + port + "/api/auth/kick/callback"
 	}
 
+	youtubeRedirectURL := os.Getenv("YOUTUBE_REDIRECT_URL")
+	if youtubeRedirectURL == "" {
+		youtubeRedirectURL = "http://localhost:" + port + "/api/auth/youtube/callback"
+	}
+
 	sessionStoreFile := os.Getenv("SESSION_STORE_FILE")
 	kickSessionStoreFile := os.Getenv("KICK_SESSION_STORE_FILE")
-	if sessionStoreFile == "" || kickSessionStoreFile == "" {
+	youtubeSessionStoreFile := os.Getenv("YOUTUBE_SESSION_STORE_FILE")
+	if sessionStoreFile == "" || kickSessionStoreFile == "" || youtubeSessionStoreFile == "" {
 		if configDir, err := os.UserConfigDir(); err == nil {
 			// .enc, not .json: the files are AES-256-GCM encrypted, not
-			// plain text — see internal/server/auth.go. Both live in the
-			// same directory so they share one auto-generated encryption
-			// key (session.key) rather than needing two.
+			// plain text — see internal/server/auth.go. All three live in
+			// the same directory so they share one auto-generated
+			// encryption key (session.key) rather than needing three.
 			if sessionStoreFile == "" {
 				sessionStoreFile = filepath.Join(configDir, "multi-stream-moderation", "sessions.enc")
 			}
 			if kickSessionStoreFile == "" {
 				kickSessionStoreFile = filepath.Join(configDir, "multi-stream-moderation", "kick-sessions.enc")
+			}
+			if youtubeSessionStoreFile == "" {
+				youtubeSessionStoreFile = filepath.Join(configDir, "multi-stream-moderation", "youtube-sessions.enc")
 			}
 		}
 	}
@@ -58,19 +67,23 @@ func main() {
 	}
 
 	config := server.Config{
-		Port:                 port,
-		UIDistDir:            uiDir,
-		TwitchClientID:       os.Getenv("TWITCH_CLIENT_ID"),
-		TwitchClientSecret:   os.Getenv("TWITCH_CLIENT_SECRET"),
-		TwitchRedirectURL:    redirectURL,
-		SessionStoreFile:     sessionStoreFile,
-		SessionEncryptionKey: os.Getenv("SESSION_ENCRYPTION_KEY"),
-		CookieSecure:         cookieSecure,
-		AllowedOrigin:        os.Getenv("ALLOWED_ORIGIN"),
-		KickClientID:         os.Getenv("KICK_CLIENT_ID"),
-		KickClientSecret:     os.Getenv("KICK_CLIENT_SECRET"),
-		KickRedirectURL:      kickRedirectURL,
-		KickSessionStoreFile: kickSessionStoreFile,
+		Port:                    port,
+		UIDistDir:               uiDir,
+		TwitchClientID:          os.Getenv("TWITCH_CLIENT_ID"),
+		TwitchClientSecret:      os.Getenv("TWITCH_CLIENT_SECRET"),
+		TwitchRedirectURL:       redirectURL,
+		SessionStoreFile:        sessionStoreFile,
+		SessionEncryptionKey:    os.Getenv("SESSION_ENCRYPTION_KEY"),
+		CookieSecure:            cookieSecure,
+		AllowedOrigin:           os.Getenv("ALLOWED_ORIGIN"),
+		KickClientID:            os.Getenv("KICK_CLIENT_ID"),
+		KickClientSecret:        os.Getenv("KICK_CLIENT_SECRET"),
+		KickRedirectURL:         kickRedirectURL,
+		KickSessionStoreFile:    kickSessionStoreFile,
+		YouTubeClientID:         os.Getenv("YOUTUBE_CLIENT_ID"),
+		YouTubeClientSecret:     os.Getenv("YOUTUBE_CLIENT_SECRET"),
+		YouTubeRedirectURL:      youtubeRedirectURL,
+		YouTubeSessionStoreFile: youtubeSessionStoreFile,
 	}
 	if config.TwitchClientID == "" {
 		log.Printf("Missing twitch client id.")
@@ -83,6 +96,12 @@ func main() {
 	}
 	if config.KickClientSecret == "" {
 		log.Printf("Missing kick client secret.")
+	}
+	if config.YouTubeClientID == "" {
+		log.Printf("Missing youtube client id.")
+	}
+	if config.YouTubeClientSecret == "" {
+		log.Printf("Missing youtube client secret.")
 	}
 	srv := server.New(config)
 	log.Printf("listening on :%s", port)

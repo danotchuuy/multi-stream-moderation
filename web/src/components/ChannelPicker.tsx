@@ -1,5 +1,9 @@
 import { useState } from "react";
 import type { ModeratedChannel, TwitchUser } from "../lib/api";
+import {
+  normalizeTwitchChannel,
+  TWITCH_CHANNEL_HELP,
+} from "../lib/channelValidation";
 
 type Props = {
   user: TwitchUser;
@@ -17,6 +21,7 @@ export function ChannelPicker({
   onSignOut,
 }: Props) {
   const [manualChannel, setManualChannel] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
 
   return (
     <div className="card">
@@ -61,8 +66,13 @@ export function ChannelPicker({
         className="manual-channel"
         onSubmit={(e) => {
           e.preventDefault();
-          const name = manualChannel.trim();
-          if (name) onSelect(name);
+          const normalized = normalizeTwitchChannel(manualChannel);
+          if (!normalized) {
+            setManualError(`That doesn't look like a Twitch channel name. ${TWITCH_CHANNEL_HELP}`);
+            return;
+          }
+          setManualError(null);
+          onSelect(normalized);
         }}
       >
         <label htmlFor="channel-input">Or watch any channel by name</label>
@@ -70,7 +80,10 @@ export function ChannelPicker({
           <input
             id="channel-input"
             value={manualChannel}
-            onChange={(e) => setManualChannel(e.target.value)}
+            onChange={(e) => {
+              setManualChannel(e.target.value);
+              setManualError(null);
+            }}
             placeholder="channel name"
             autoComplete="off"
           />
@@ -78,6 +91,7 @@ export function ChannelPicker({
             Watch
           </button>
         </div>
+        {manualError && <p className="error">{manualError}</p>}
       </form>
     </div>
   );

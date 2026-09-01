@@ -1,9 +1,48 @@
 .app {
-  max-width: 1180px;
+  max-width: 1600px;
   margin: 4rem auto;
   padding: 0 1.5rem;
   font-family: system-ui, sans-serif;
   text-align: center;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  position: relative;
+}
+
+.app-header h1 {
+  margin: 0;
+}
+
+.theme-toggle {
+  position: absolute;
+  right: 0;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--muted-fg);
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .theme-toggle {
+    position: static;
+  }
 }
 
 .panels {
@@ -15,20 +54,21 @@
 }
 
 .platform-panel {
-  flex: 1 1 480px;
+  flex: 1 1 420px;
   min-width: 0;
 }
 
 .card {
   text-align: left;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1.5rem;
   margin-top: 1.5rem;
+  background: var(--card-bg);
 }
 
 .error {
-  color: #c0392b;
+  color: var(--error);
 }
 
 .button,
@@ -97,7 +137,7 @@
   margin-top: 1rem;
   margin-bottom: 0.4rem;
   font-size: 0.9rem;
-  color: #555;
+  color: var(--muted-fg);
 }
 
 .manual-channel-row {
@@ -108,9 +148,11 @@
 .manual-channel-row input {
   flex: 1;
   padding: 0.5rem 0.7rem;
-  border: 1px solid #ccc;
+  border: 1px solid var(--input-border);
   border-radius: 6px;
   font-size: 1rem;
+  background: var(--control-bg);
+  color: var(--control-fg);
 }
 
 .chat-panel {
@@ -130,11 +172,11 @@
 
 .status {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--faint-fg);
 }
 
 .status.connected {
-  color: #2ecc71;
+  color: var(--success);
 }
 
 .chat-log {
@@ -158,7 +200,21 @@
 }
 
 .chat-log li:nth-child(odd) {
-  background: #fafafa;
+  background: var(--stripe-bg);
+}
+
+.chat-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-right: 0.35rem;
+}
+
+.chat-badge {
+  display: inline-flex;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: default;
 }
 
 .chat-user {
@@ -171,17 +227,17 @@
 }
 
 .chat-empty {
-  color: #999;
+  color: var(--faint-fg);
   font-style: italic;
 }
 
 .chat-deleted .chat-text {
-  color: #999;
+  color: var(--faint-fg);
   font-style: italic;
 }
 
 .chat-system {
-  color: #999;
+  color: var(--faint-fg);
   font-size: 0.85rem;
   font-style: italic;
 }
@@ -198,9 +254,9 @@
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #fff;
-  color: #333;
+  border: 1px solid var(--input-border);
+  background: var(--control-bg);
+  color: var(--control-fg);
   cursor: pointer;
 }
 
@@ -211,13 +267,13 @@
 }
 
 .mod-button-danger {
-  color: #c0392b;
-  border-color: #e7b3ac;
+  color: var(--error);
+  border-color: var(--error-border);
 }
 
 .mod-button-danger:hover:not(:disabled) {
-  border-color: #c0392b;
-  color: #c0392b;
+  border-color: var(--error);
+  color: var(--error);
 }
 
 .mod-button:disabled,
@@ -234,7 +290,54 @@
 
 .hint {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--muted-fg);
+}
+
+.spam-panel {
+  margin-top: 1rem;
+  border-color: var(--spam-border);
+  background: var(--spam-bg);
+}
+
+.spam-group-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.spam-group {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  background: var(--card-bg);
+}
+
+.spam-group-text {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.spam-group-meta {
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+  margin: 0.15rem 0 0.4rem;
+}
+
+.spam-group-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.spam-group-user {
+  font-size: 0.75rem;
+  background: var(--chip-bg);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
 }
 
 .platform-badge {
@@ -270,7 +373,7 @@
 
 .kick-panel .manual-channel-row button:disabled {
   background: #bdf5a0;
-  color: #666;
+  color: var(--muted-fg);
 }
 
 .kick-panel .link-button {
@@ -281,6 +384,40 @@
 .kick-panel .mod-select:hover:not(:disabled) {
   border-color: #3fd400;
   color: #2e9c00;
+}
+
+/* YouTube's brand accent (red), for the third panel. */
+.youtube-badge {
+  background: #ff0000;
+  color: #fff;
+}
+
+.youtube-panel .button,
+.youtube-panel .channel-button,
+.youtube-panel .manual-channel-row button {
+  background: #ff0000;
+  color: #fff;
+}
+
+.youtube-panel .button:hover,
+.youtube-panel .channel-button:hover,
+.youtube-panel .manual-channel-row button:hover:not(:disabled) {
+  background: #cc0000;
+}
+
+.youtube-panel .manual-channel-row button:disabled {
+  background: #f5a3a3;
+  color: #fff;
+}
+
+.youtube-panel .link-button {
+  color: #cc0000;
+}
+
+.youtube-panel .mod-button:hover:not(:disabled),
+.youtube-panel .mod-select:hover:not(:disabled) {
+  border-color: #cc0000;
+  color: #cc0000;
 }
 
 @media (max-width: 640px) {

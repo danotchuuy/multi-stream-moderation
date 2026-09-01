@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useChatStream, type DisplayMessage } from "../lib/useChatStream";
 import { ModerationControls } from "./ModerationControls";
+import { ChatBadges } from "./ChatBadges";
 
 type Props = {
   channel: string;
@@ -67,6 +68,7 @@ export function ChatPanel({
               <span className="chat-text">{m.text}</span>
             ) : (
               <>
+                <ChatBadges badges={m.badges} />
                 <span className="chat-user" style={{ color: m.color || undefined }}>
                   {m.displayName || m.username}
                 </span>

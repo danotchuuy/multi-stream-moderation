@@ -64,6 +64,21 @@ type Config struct {
 	// other, but reuses the same at-rest encryption key when both files
 	// live in the same directory (see auth.go's resolveEncryptionKey).
 	KickSessionStoreFile string
+
+	// YouTubeClientID and YouTubeClientSecret identify this app to
+	// Google's OAuth server. Create credentials at
+	// https://console.cloud.google.com/apis/credentials with the
+	// YouTube Data API v3 enabled.
+	YouTubeClientID     string
+	YouTubeClientSecret string
+	// YouTubeRedirectURL is the OAuth callback URL registered for the
+	// app above; it must exactly match one of its authorized redirect
+	// URIs.
+	YouTubeRedirectURL string
+	// YouTubeSessionStoreFile is where authenticated YouTube sessions
+	// are persisted, encrypted — the YouTube equivalent of
+	// SessionStoreFile.
+	YouTubeSessionStoreFile string
 }
 
 // Server bundles the HTTP server and its dependencies.
@@ -86,6 +101,8 @@ type Server struct {
 	// needed by Kick's moderation and event-subscription endpoints.
 	kickChannelIDsMu sync.Mutex
 	kickChannelIDs   map[string]int64
+
+	youtubeAuth *youtubeAuthStore
 }
 
 // New builds a Server ready to serve.
@@ -100,6 +117,8 @@ func New(cfg Config) *Server {
 		kickHub:        newKickHub(),
 		kickPublicKey:  &kickPublicKeyCache{},
 		kickChannelIDs: make(map[string]int64),
+
+		youtubeAuth: newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
 	}
 	s.routes()
 	return s
@@ -139,6 +158,18 @@ func (s *Server) routes() {
 	// CORS involved; authenticated instead via RSA signature (see
 	// kick_webhooks.go).
 	s.mux.HandleFunc("POST /api/kick/webhook", s.handleKickWebhook)
+
+	s.mux.HandleFunc("GET /api/auth/youtube/login", s.handleYouTubeLogin)
+	s.mux.HandleFunc("GET /api/auth/youtube/callback", s.handleYouTubeCallback)
+	s.mux.HandleFunc("GET /api/auth/youtube/session", s.handleYouTubeAuthSession)
+	s.mux.HandleFunc("POST /api/auth/youtube/logout", s.handleYouTubeAuthLogout)
+
+	s.mux.HandleFunc("GET /api/youtube/live-chat/own", s.handleOwnYouTubeLiveChat)
+	s.mux.HandleFunc("GET /api/youtube/live-chat/resolve", s.handleResolveYouTubeVideo)
+	s.mux.HandleFunc("GET /api/youtube/chat/stream", s.handleYouTubeChatStream)
+	s.mux.HandleFunc("DELETE /api/youtube/chat/messages", s.handleDeleteYouTubeChatMessage)
+	s.mux.HandleFunc("POST /api/youtube/bans", s.handleBanYouTubeUser)
+	s.mux.HandleFunc("POST /api/youtube/timeouts", s.handleTimeoutYouTubeUser)
 
 	if info, err := os.Stat(s.cfg.UIDistDir); err == nil && info.IsDir() {
 		s.mux.Handle("/", http.FileServer(http.Dir(s.cfg.UIDistDir)))

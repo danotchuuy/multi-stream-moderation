@@ -23,9 +23,40 @@ type Message struct {
 	Subscriber  bool
 	Broadcaster bool
 	Color       string
-	Tags        map[string]string
-	Timestamp   time.Time
-	Raw         string
+	// Badges is the chatter's badges (broadcaster, moderator, vip,
+	// subscriber, ...) in the order Twitch sent them, parsed from the
+	// "badges" tag. Version distinguishes tiers within a badge, e.g. a
+	// subscriber badge's Version is their sub month count.
+	Badges    []Badge
+	Tags      map[string]string
+	Timestamp time.Time
+	Raw       string
+}
+
+// Badge is a single chat badge parsed from the IRC "badges" tag, e.g.
+// "subscriber/12" -> Badge{Name: "subscriber", Version: "12"}.
+type Badge struct {
+	Name    string
+	Version string
+}
+
+// parseBadges splits the "badges" tag's comma-separated
+// "<name>/<version>" pairs, per
+// https://dev.twitch.tv/docs/chat/irc/tags/#privmsg-tags.
+func parseBadges(raw string) []Badge {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	badges := make([]Badge, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		name, version, _ := strings.Cut(part, "/")
+		badges = append(badges, Badge{Name: name, Version: version})
+	}
+	return badges
 }
 
 // Event is any IRC line received from Twitch (PRIVMSG, JOIN, PART,
@@ -167,6 +198,7 @@ func newMessage(p parsedLine, raw string) Message {
 		Subscriber:  tags["subscriber"] == "1",
 		Broadcaster: strings.Contains(tags["badges"], "broadcaster/"),
 		Color:       tags["color"],
+		Badges:      parseBadges(tags["badges"]),
 		Tags:        tags,
 		Timestamp:   ts,
 		Raw:         raw,

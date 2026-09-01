@@ -36,6 +36,9 @@ func TestParseLinePrivmsg(t *testing.T) {
 	if !msg.Broadcaster {
 		t.Error("expected Broadcaster to be true")
 	}
+	if len(msg.Badges) != 1 || msg.Badges[0] != (Badge{Name: "broadcaster", Version: "1"}) {
+		t.Errorf("Badges = %#v, want [{broadcaster 1}]", msg.Badges)
+	}
 	if msg.ID != "abc-123" || msg.UserID != "456" {
 		t.Errorf("ID/UserID = %q/%q", msg.ID, msg.UserID)
 	}
@@ -82,6 +85,27 @@ func TestUnescapeTagValue(t *testing.T) {
 		if got := unescapeTagValue(in); got != want {
 			t.Errorf("unescapeTagValue(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestParseBadges(t *testing.T) {
+	got := parseBadges("broadcaster/1,subscriber/12,vip/1")
+	want := []Badge{
+		{Name: "broadcaster", Version: "1"},
+		{Name: "subscriber", Version: "12"},
+		{Name: "vip", Version: "1"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parseBadges() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("parseBadges()[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+
+	if got := parseBadges(""); got != nil {
+		t.Errorf("parseBadges(\"\") = %#v, want nil", got)
 	}
 }
 
