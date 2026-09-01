@@ -16,6 +16,29 @@ func deleteKickChatMessage(ctx context.Context, accessToken, messageID string) e
 	return kickAPIRequest(ctx, http.MethodDelete, endpoint, accessToken, nil, nil)
 }
 
+type kickSendChatMessageRequest struct {
+	BroadcasterUserID int64  `json:"broadcaster_user_id"`
+	Content           string `json:"content"`
+	Type              string `json:"type"`
+}
+
+// sendKickChatMessage posts a new chat message to broadcasterUserID's
+// channel, sent as the signed-in user (type "user"); Kick's "bot" type is
+// for app-level tokens with no specific channel, which doesn't fit this
+// app's per-user OAuth model.
+// https://docs.kick.com/apis/chat#send-chat-message
+func sendKickChatMessage(ctx context.Context, accessToken string, broadcasterUserID int64, content string) error {
+	body, err := json.Marshal(kickSendChatMessageRequest{
+		BroadcasterUserID: broadcasterUserID,
+		Content:           content,
+		Type:              "user",
+	})
+	if err != nil {
+		return err
+	}
+	return kickAPIRequest(ctx, http.MethodPost, kickAPIBase+"/chat", accessToken, body, nil)
+}
+
 type kickBanRequest struct {
 	BroadcasterUserID int64  `json:"broadcaster_user_id"`
 	UserID            int64  `json:"user_id"`

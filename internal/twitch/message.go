@@ -27,10 +27,23 @@ type Message struct {
 	// subscriber, ...) in the order Twitch sent them, parsed from the
 	// "badges" tag. Version distinguishes tiers within a badge, e.g. a
 	// subscriber badge's Version is their sub month count.
-	Badges    []Badge
+	Badges []Badge
+	// FirstMessage reports whether this is the first message the sender
+	// has ever posted in the channel (tag "first-msg").
+	FirstMessage bool
+	// Reply is the parent message this one is threaded to as a reply, if
+	// any, parsed from the "reply-parent-*" tags.
+	Reply     *Reply
 	Tags      map[string]string
 	Timestamp time.Time
 	Raw       string
+}
+
+// Reply is the parent message a chat reply is threaded to.
+type Reply struct {
+	UserLogin   string
+	DisplayName string
+	Body        string
 }
 
 // Badge is a single chat badge parsed from the IRC "badges" tag, e.g.
@@ -187,21 +200,32 @@ func newMessage(p parsedLine, raw string) Message {
 		}
 	}
 
+	var reply *Reply
+	if parentID := tags["reply-parent-msg-id"]; parentID != "" {
+		reply = &Reply{
+			UserLogin:   tags["reply-parent-user-login"],
+			DisplayName: firstNonEmpty(tags["reply-parent-display-name"], tags["reply-parent-user-login"]),
+			Body:        tags["reply-parent-msg-body"],
+		}
+	}
+
 	return Message{
-		ID:          tags["id"],
-		Channel:     channel,
-		Text:        text,
-		Username:    username,
-		DisplayName: firstNonEmpty(tags["display-name"], username),
-		UserID:      tags["user-id"],
-		Mod:         tags["mod"] == "1",
-		Subscriber:  tags["subscriber"] == "1",
-		Broadcaster: strings.Contains(tags["badges"], "broadcaster/"),
-		Color:       tags["color"],
-		Badges:      parseBadges(tags["badges"]),
-		Tags:        tags,
-		Timestamp:   ts,
-		Raw:         raw,
+		ID:           tags["id"],
+		Channel:      channel,
+		Text:         text,
+		Username:     username,
+		DisplayName:  firstNonEmpty(tags["display-name"], username),
+		UserID:       tags["user-id"],
+		Mod:          tags["mod"] == "1",
+		Subscriber:   tags["subscriber"] == "1",
+		Broadcaster:  strings.Contains(tags["badges"], "broadcaster/"),
+		Color:        tags["color"],
+		Badges:       parseBadges(tags["badges"]),
+		FirstMessage: tags["first-msg"] == "1",
+		Reply:        reply,
+		Tags:         tags,
+		Timestamp:    ts,
+		Raw:          raw,
 	}
 }
 

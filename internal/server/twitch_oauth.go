@@ -23,10 +23,15 @@ const (
 	//     the channel picker.
 	//   - moderator:manage:chat_messages: delete individual messages.
 	//   - moderator:manage:banned_users: ban/timeout chatters.
-	// Sessions authorized before these last two were added won't have
-	// them; the affected calls fail with a 401 until the user reconnects
-	// their Twitch account.
-	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users"
+	//   - user:write:chat: send chat messages as themselves.
+	//   - channel:manage:broadcast: update their own stream's title and
+	//     category. Twitch requires broadcaster_id to match the token's
+	//     own user ID for this, so it only ever works for a viewer's own
+	//     channel, never one they merely moderate.
+	// Sessions authorized before these were added won't have them; the
+	// affected calls fail with a 401 until the user reconnects their
+	// Twitch account.
+	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users user:write:chat channel:manage:broadcast"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}

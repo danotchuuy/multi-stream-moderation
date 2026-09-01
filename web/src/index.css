@@ -18,6 +18,10 @@
   --success: #2ecc71;
   --spam-border: #e8b800;
   --spam-bg: #fffbea;
+  --raid-border: #9146ff;
+  --raid-bg: #f3ebff;
+  --first-chat-fg: #0a6e0a;
+  --first-chat-bg: #e3f7e3;
 }
 
 [data-theme="dark"] {
@@ -40,6 +44,10 @@
   --success: #38d982;
   --spam-border: #a8860a;
   --spam-bg: #2a2413;
+  --raid-border: #9146ff;
+  --raid-bg: #241a35;
+  --first-chat-fg: #6fe36f;
+  --first-chat-bg: #16301a;
 }
 
 body {

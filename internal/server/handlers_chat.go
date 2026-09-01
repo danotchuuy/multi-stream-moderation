@@ -23,7 +23,22 @@ type chatMessageDTO struct {
 	Subscriber  bool           `json:"subscriber"`
 	Broadcaster bool           `json:"broadcaster"`
 	Badges      []chatBadgeDTO `json:"badges"`
-	Timestamp   int64          `json:"timestamp"`
+	// FirstMessage reports whether this is the sender's first-ever
+	// message in the channel — Twitch only; Kick's chat webhook carries
+	// no equivalent signal.
+	FirstMessage bool `json:"firstMessage,omitempty"`
+	// Reply is the parent message this one is replying to, if any.
+	Reply     *chatReplyDTO `json:"reply,omitempty"`
+	Timestamp int64         `json:"timestamp"`
+}
+
+// chatReplyDTO is the shared "replying to" shape sent to the browser for
+// both Twitch (reply-parent-* IRC tags) and Kick (the chat.message.sent
+// webhook's replies_to field) messages.
+type chatReplyDTO struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName,omitempty"`
+	Text        string `json:"text"`
 }
 
 // chatBadgeDTO is the shared badge shape sent to the browser for both
@@ -61,11 +76,20 @@ type clearChatDTO struct {
 	DurationSeconds int    `json:"durationSeconds,omitempty"`
 }
 
+// raidDTO mirrors a Twitch USERNOTICE msg-id=raid event: another
+// channel's broadcaster raided this one, bringing their viewers along.
+type raidDTO struct {
+	Channel     string `json:"channel"`
+	DisplayName string `json:"displayName"`
+	Login       string `json:"login"`
+	ViewerCount int    `json:"viewerCount"`
+}
+
 // streamEvent tags what a background IRC callback put on the queue so
 // the single SSE-writing goroutine below can marshal and label it
 // correctly.
 type streamEvent struct {
-	kind    string // "message", "clearmsg", or "clearchat"
+	kind    string // "message", "clearmsg", "clearchat", or "raid"
 	message twitch.Message
 	event   twitch.Event
 }
@@ -111,6 +135,10 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			enqueue(streamEvent{kind: "clearmsg", event: e})
 		case "CLEARCHAT":
 			enqueue(streamEvent{kind: "clearchat", event: e})
+		case "USERNOTICE":
+			if e.Tags["msg-id"] == "raid" {
+				enqueue(streamEvent{kind: "raid", event: e})
+			}
 		}
 	})
 	if err := client.Join(channel); err != nil {
@@ -156,20 +184,29 @@ func writeStreamEvent(w http.ResponseWriter, ev streamEvent) {
 	switch ev.kind {
 	case "message":
 		m := ev.message
-		writeSSE(w, "message", chatMessageDTO{
-			ID:          m.ID,
-			Channel:     m.Channel,
-			Text:        m.Text,
-			Username:    m.Username,
-			DisplayName: m.DisplayName,
-			UserID:      m.UserID,
-			Color:       m.Color,
-			Mod:         m.Mod,
-			Subscriber:  m.Subscriber,
-			Broadcaster: m.Broadcaster,
-			Badges:      twitchBadgeDTOs(m.Badges),
-			Timestamp:   m.Timestamp.UnixMilli(),
-		})
+		dto := chatMessageDTO{
+			ID:           m.ID,
+			Channel:      m.Channel,
+			Text:         m.Text,
+			Username:     m.Username,
+			DisplayName:  m.DisplayName,
+			UserID:       m.UserID,
+			Color:        m.Color,
+			Mod:          m.Mod,
+			Subscriber:   m.Subscriber,
+			Broadcaster:  m.Broadcaster,
+			Badges:       twitchBadgeDTOs(m.Badges),
+			FirstMessage: m.FirstMessage,
+			Timestamp:    m.Timestamp.UnixMilli(),
+		}
+		if m.Reply != nil {
+			dto.Reply = &chatReplyDTO{
+				Username:    m.Reply.UserLogin,
+				DisplayName: m.Reply.DisplayName,
+				Text:        m.Reply.Body,
+			}
+		}
+		writeSSE(w, "message", dto)
 	case "clearmsg":
 		e := ev.event
 		writeSSE(w, "clearmsg", clearMsgDTO{
@@ -191,6 +228,20 @@ func writeStreamEvent(w http.ResponseWriter, ev streamEvent) {
 			}
 		}
 		writeSSE(w, "clearchat", dto)
+	case "raid":
+		e := ev.event
+		viewerCount, _ := strconv.Atoi(e.Tags["msg-param-viewerCount"])
+		login := e.Tags["msg-param-login"]
+		displayName := e.Tags["msg-param-displayName"]
+		if displayName == "" {
+			displayName = login
+		}
+		writeSSE(w, "raid", raidDTO{
+			Channel:     e.Channel,
+			DisplayName: displayName,
+			Login:       login,
+			ViewerCount: viewerCount,
+		})
 	}
 }
 

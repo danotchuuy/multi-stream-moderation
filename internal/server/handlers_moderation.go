@@ -42,6 +42,51 @@ func (s *Server) handleDeleteChatMessage(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type sendMessageRequestDTO struct {
+	Channel string `json:"channel"`
+	Message string `json:"message"`
+}
+
+// handleSendChatMessage posts a new chat message to the channel, sent as
+// the signed-in user themselves — Twitch has no "send as the channel"
+// concept for a user access token.
+func (s *Server) handleSendChatMessage(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req sendMessageRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeTwitchChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, channel)
+	if err != nil {
+		http.Error(w, "could not resolve channel", http.StatusBadGateway)
+		return
+	}
+
+	if err := sendChatMessage(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, message); err != nil {
+		writeTwitchAPIError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type banRequestDTO struct {
 	Channel string `json:"channel"`
 	UserID  string `json:"userId"`

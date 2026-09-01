@@ -78,6 +78,20 @@ export type YouTubeChatMessage = {
   timestamp: number;
 };
 
+export async function sendYouTubeChatMessage(
+  liveChatId: string,
+  message: string,
+): Promise<void> {
+  const res = await fetch("/api/youtube/chat/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ liveChatId, message }),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));
+  }
+}
+
 export async function deleteYouTubeChatMessage(messageId: string): Promise<void> {
   const params = new URLSearchParams({ messageId });
   const res = await fetch(`/api/youtube/chat/messages?${params}`, {

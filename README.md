@@ -33,18 +33,37 @@ Click "Connect Twitch account" to authorize, then pick a channel you
 moderate (or type any channel name) to watch its chat live. Each message
 from a channel you moderate shows Delete / Timeout / Ban controls, unless
 it's from the broadcaster or (for a regular moderator) another moderator
-— matching what Twitch itself allows.
+— matching what Twitch itself allows. A text box under the chat log lets
+you send messages back, as yourself, to any channel you're watching.
+Messages are also decorated when relevant: a reply shows the parent
+message it's threaded to, a chatter's first-ever message in the channel
+is tagged "first chat", and an incoming raid gets its own highlighted
+banner row. If you're signed in as the channel's own broadcaster, an
+"Edit stream info" menu at the top of the panel lets you update the
+title and category/game — Twitch only allows the broadcaster themselves
+to do this (not a moderator, even one who can otherwise moderate the
+channel), so the menu is hidden for anyone else.
 
-> If you connected before moderation actions were added, sign out and
-> reconnect once — the delete/ban/timeout scopes weren't requested by
-> earlier sessions, so those calls will 401 until you do.
+> If you connected before moderation actions (or sending messages, or
+> editing stream info) were added, sign out and reconnect once — those
+> scopes weren't requested by earlier sessions, so the affected calls
+> will 401 until you do.
 
 ### Kick
 
 Kick chat lives in its own panel next to Twitch's, with the same Delete /
 Timeout / Ban controls (Kick's own moderation rules apply the same way:
 no acting on the broadcaster, and a regular moderator can't act on
-another moderator). It works differently under the hood, though, because
+another moderator) and the same text box for sending messages back.
+Replies are decorated the same way as Twitch's, showing the parent
+message they're threaded to — Kick's chat webhook doesn't carry a
+first-time-chatter flag or a raid/host event the way Twitch's IRC feed
+does, so those two decorations are Twitch-only. Kick's own broadcaster
+also gets the same "Edit stream info" menu at the top of the panel for
+updating the title and category — Kick's update endpoint identifies the
+channel purely from the access token, so it can likewise only ever act
+on the signed-in user's own channel, never one they merely moderate.
+Kick chat works differently under the hood, though, because
 Kick's official API has no endpoint for *reading* chat — only sending,
 deleting, and moderating. Live messages only arrive via a **webhook**,
 which means:
@@ -91,8 +110,8 @@ still works either way).
 
 YouTube live chat gets its own third panel, with the same Delete /
 Timeout / Ban controls (no acting on the broadcaster, and a regular
-moderator can't act on another moderator). A few things work differently
-here too:
+moderator can't act on another moderator) and the same text box for
+sending messages back. A few things work differently here too:
 
 - A YouTube **channel** doesn't have one persistent chat the way a
   Twitch/Kick channel does — each individual broadcast has its own. So

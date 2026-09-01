@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc/status"
 )
 
 // --- OAuth ---------------------------------------------------------------
@@ -227,6 +229,42 @@ func (s *Server) handleDeleteYouTubeChatMessage(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type youtubeSendMessageRequestDTO struct {
+	LiveChatID string `json:"liveChatId"`
+	Message    string `json:"message"`
+}
+
+// handleSendYouTubeChatMessage posts a new text message to the live
+// chat, sent as the signed-in user.
+func (s *Server) handleSendYouTubeChatMessage(w http.ResponseWriter, r *http.Request) {
+	sess := s.youtubeSessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req youtubeSendMessageRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	if req.LiveChatID == "" {
+		http.Error(w, "liveChatId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := sendYouTubeChatMessage(r.Context(), sess.AccessToken, req.LiveChatID, message); err != nil {
+		writeYouTubeError(w, err, http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type youtubeBanRequestDTO struct {
 	LiveChatID string `json:"liveChatId"`
 	ChannelID  string `json:"channelId"`
@@ -306,20 +344,16 @@ type youtubeChatMessageDTO struct {
 	Timestamp    int64  `json:"timestamp"`
 }
 
-const (
-	youtubeMinPollInterval = 2 * time.Second
-	youtubeMaxPollInterval = 15 * time.Second
-)
-
-// handleYouTubeChatStream polls liveChatMessages.list and relays new
-// text messages to the browser as server-sent events. YouTube's API is
-// pull-based (no websocket/webhook for chat), so — unlike Twitch's
-// always-open IRC connection or Kick's webhook fan-out — this handler
-// owns a polling loop for as long as the browser tab stays open. It
-// re-resolves the session on every cycle (cheap: only refreshes the
-// token over the network when actually close to expiring) since a
-// viewer could easily keep a tab open longer than a ~1 hour access
-// token's lifetime.
+// handleYouTubeChatStream opens a liveChatMessages.streamList gRPC
+// stream and relays text messages to the browser as server-sent
+// events. Unlike liveChatMessages.list, streamList is push-based —
+// YouTube holds the connection open and sends new messages as they're
+// posted — so, unlike the old REST-polling implementation, this handler
+// doesn't own a polling loop; relayYouTubeChatStream (youtube_stream.go)
+// blocks for as long as the gRPC stream stays healthy, and this handler
+// just reconnects it (refreshing the session first, since a viewer
+// could easily keep a tab open longer than a ~1 hour access token's
+// lifetime) whenever it ends.
 func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request) {
 	if s.youtubeSessionFromRequest(r) == nil {
 		http.Error(w, "not authenticated", http.StatusUnauthorized)
@@ -338,6 +372,12 @@ func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	client, err := s.youtubeChatServiceClient()
+	if err != nil {
+		http.Error(w, "could not reach youtube", http.StatusBadGateway)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -346,15 +386,8 @@ func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request)
 
 	ctx := r.Context()
 	pageToken := ""
-	interval := 5 * time.Second
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-
 		sess := s.youtubeSessionFromRequest(r)
 		if sess == nil {
 			// Refresh failed (e.g. access revoked) or the cookie is
@@ -362,88 +395,30 @@ func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		params := url.Values{"part": {"snippet,authorDetails"}, "liveChatId": {liveChatID}}
-		if pageToken != "" {
-			params.Set("pageToken", pageToken)
+		err := s.relayYouTubeChatStream(ctx, client, sess.AccessToken, liveChatID, &pageToken, w, flusher)
+		if err == nil {
+			// Request context was cancelled — the viewer closed the tab.
+			return
+		}
+		if youtubeStreamErrTerminal(err) {
+			// Chat ended, access revoked, or the ID is no longer valid —
+			// no point retrying indefinitely.
+			// Named "streamError", not "error" — EventSource fires its
+			// own native "error" event on connection trouble, and
+			// listening for both under the same name would make a
+			// business-logic error (e.g. chat ended) look like a dropped
+			// connection to the browser.
+			st, _ := status.FromError(err)
+			fmt.Fprintf(w, "event: streamError\ndata: %s\n\n", mustJSON(map[string]string{"message": st.Message()}))
+			flusher.Flush()
+			return
 		}
 
-		var out struct {
-			Items []struct {
-				ID      string `json:"id"`
-				Snippet struct {
-					Type              string `json:"type"`
-					DisplayMessage    string `json:"displayMessage"`
-					HasDisplayContent bool   `json:"hasDisplayContent"`
-					PublishedAt       string `json:"publishedAt"`
-				} `json:"snippet"`
-				AuthorDetails struct {
-					ChannelID       string `json:"channelId"`
-					DisplayName     string `json:"displayName"`
-					ProfileImageURL string `json:"profileImageUrl"`
-					IsChatOwner     bool   `json:"isChatOwner"`
-					IsChatModerator bool   `json:"isChatModerator"`
-					IsChatSponsor   bool   `json:"isChatSponsor"`
-				} `json:"authorDetails"`
-			} `json:"items"`
-			NextPageToken         string `json:"nextPageToken"`
-			PollingIntervalMillis int    `json:"pollingIntervalMillis"`
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(youtubeStreamReconnectDelay):
 		}
-
-		err := youtubeAPIRequest(ctx, http.MethodGet, youtubeAPIBase+"/liveChat/messages?"+params.Encode(), sess.AccessToken, nil, &out)
-		if err != nil {
-			if apiErr, ok := err.(*youtubeAPIError); ok && (apiErr.Status == 401 || apiErr.Status == 403 || apiErr.Status == 404) {
-				// Chat ended, access revoked, or the ID is no longer
-				// valid — no point retrying indefinitely.
-				// Named "streamError", not "error" — EventSource fires
-				// its own native "error" event on connection trouble, and
-				// listening for both under the same name would make a
-				// business-logic error (e.g. chat ended) look like a
-				// dropped connection to the browser.
-				fmt.Fprintf(w, "event: streamError\ndata: %s\n\n", mustJSON(map[string]string{"message": apiErr.Message}))
-				flusher.Flush()
-				return
-			}
-			// Transient error (network blip, rate limit): back off and
-			// try again rather than tearing down the viewer's stream.
-			continue
-		}
-
-		pageToken = out.NextPageToken
-		if out.PollingIntervalMillis > 0 {
-			interval = time.Duration(out.PollingIntervalMillis) * time.Millisecond
-			if interval < youtubeMinPollInterval {
-				interval = youtubeMinPollInterval
-			} else if interval > youtubeMaxPollInterval {
-				interval = youtubeMaxPollInterval
-			}
-		}
-
-		wrote := false
-		for _, item := range out.Items {
-			if item.Snippet.Type != "textMessageEvent" || !item.Snippet.HasDisplayContent {
-				continue
-			}
-			ts := time.Now().UnixMilli()
-			if parsed, err := time.Parse(time.RFC3339, item.Snippet.PublishedAt); err == nil {
-				ts = parsed.UnixMilli()
-			}
-			writeSSE(w, "message", youtubeChatMessageDTO{
-				ID:           item.ID,
-				Text:         item.Snippet.DisplayMessage,
-				DisplayName:  item.AuthorDetails.DisplayName,
-				ChannelID:    item.AuthorDetails.ChannelID,
-				ProfileImage: item.AuthorDetails.ProfileImageURL,
-				Mod:          item.AuthorDetails.IsChatModerator,
-				Subscriber:   item.AuthorDetails.IsChatSponsor,
-				Broadcaster:  item.AuthorDetails.IsChatOwner,
-				Timestamp:    ts,
-			})
-			wrote = true
-		}
-		if !wrote {
-			fmt.Fprint(w, ": keepalive\n\n")
-		}
-		flusher.Flush()
 	}
 }
 

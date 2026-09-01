@@ -15,6 +15,37 @@ func deleteYouTubeChatMessage(ctx context.Context, accessToken, messageID string
 	return youtubeAPIRequest(ctx, http.MethodDelete, endpoint, accessToken, nil, nil)
 }
 
+type liveChatSendMessageRequest struct {
+	Snippet liveChatSendMessageSnippet `json:"snippet"`
+}
+
+type liveChatSendMessageSnippet struct {
+	LiveChatID         string                        `json:"liveChatId"`
+	Type               string                        `json:"type"`
+	TextMessageDetails liveChatSendMessageTextDetail `json:"textMessageDetails"`
+}
+
+type liveChatSendMessageTextDetail struct {
+	MessageText string `json:"messageText"`
+}
+
+// sendYouTubeChatMessage posts a new text message to liveChatID, sent as
+// the signed-in user.
+// https://developers.google.com/youtube/v3/live/docs/liveChatMessages/insert
+func sendYouTubeChatMessage(ctx context.Context, accessToken, liveChatID, message string) error {
+	body, err := json.Marshal(liveChatSendMessageRequest{Snippet: liveChatSendMessageSnippet{
+		LiveChatID:         liveChatID,
+		Type:               "textMessageEvent",
+		TextMessageDetails: liveChatSendMessageTextDetail{MessageText: message},
+	}})
+	if err != nil {
+		return err
+	}
+
+	endpoint := youtubeAPIBase + "/liveChat/messages?" + url.Values{"part": {"snippet"}}.Encode()
+	return youtubeAPIRequest(ctx, http.MethodPost, endpoint, accessToken, body, nil)
+}
+
 type liveChatBanRequest struct {
 	Snippet liveChatBanSnippet `json:"snippet"`
 }

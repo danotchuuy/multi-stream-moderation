@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useKickChatStream, type KickDisplayMessage } from "../lib/useKickChatStream";
 import { useKickSpamGroups } from "../lib/useKickSpamGroups";
+import { sendKickChatMessage } from "../lib/kickApi";
 import { KickModerationControls } from "./KickModerationControls";
 import { KickSpamGroupsPanel } from "./KickSpamGroupsPanel";
 import { ChatBadges } from "./ChatBadges";
+import { ChatComposer } from "./ChatComposer";
+import { KickChannelInfoMenu } from "./KickChannelInfoMenu";
 
 type Props = {
   channel: string;
@@ -49,6 +52,8 @@ export function KickChatPanel({
           </button>
         </header>
 
+        {viewerIsBroadcaster && <KickChannelInfoMenu channel={channel} />}
+
         {actionError && (
           <p className="error mod-error">
             {actionError}{" "}
@@ -68,6 +73,12 @@ export function KickChatPanel({
                 <span className="chat-text">{m.text}</span>
               ) : (
                 <>
+                  {m.reply && (
+                    <span className="chat-reply-context">
+                      ↩ replying to <strong>{m.reply.displayName || m.reply.username}</strong>:{" "}
+                      {m.reply.text}
+                    </span>
+                  )}
                   <ChatBadges badges={m.badges} />
                   <span className="chat-user" style={{ color: m.color || undefined }}>
                     {m.username}
@@ -92,6 +103,8 @@ export function KickChatPanel({
             <li className="chat-empty">Waiting for messages...</li>
           )}
         </ul>
+
+        <ChatComposer onSend={(message) => sendKickChatMessage(channel, message)} />
       </div>
 
       {canModerate && (

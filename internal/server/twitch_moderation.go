@@ -71,6 +71,55 @@ type banUserEntry struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
+// sendChatMessageRequest is the Send Chat Message request body.
+type sendChatMessageRequest struct {
+	BroadcasterID string `json:"broadcaster_id"`
+	SenderID      string `json:"sender_id"`
+	Message       string `json:"message"`
+}
+
+type sendChatMessageResult struct {
+	MessageID  string `json:"message_id"`
+	IsSent     bool   `json:"is_sent"`
+	DropReason *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"drop_reason"`
+}
+
+// sendChatMessage posts a message to broadcasterID's chat, sent as
+// senderID — the authenticated caller themselves, since a user token has
+// no way to send "as the channel". A 2xx response doesn't guarantee
+// delivery: Twitch can still silently drop the message (e.g. AutoMod),
+// reported via is_sent/drop_reason rather than an error status, so that's
+// translated into an error here too.
+// https://dev.twitch.tv/docs/api/reference/#send-chat-message
+func sendChatMessage(ctx context.Context, clientID, accessToken, broadcasterID, senderID, message string) error {
+	body, err := json.Marshal(sendChatMessageRequest{
+		BroadcasterID: broadcasterID,
+		SenderID:      senderID,
+		Message:       message,
+	})
+	if err != nil {
+		return err
+	}
+
+	var out struct {
+		Data []sendChatMessageResult `json:"data"`
+	}
+	if err := twitchAPIRequest(ctx, http.MethodPost, twitchAPIBase+"/chat/messages", clientID, accessToken, body, &out); err != nil {
+		return err
+	}
+	if len(out.Data) > 0 && !out.Data[0].IsSent {
+		reason := "message was not delivered"
+		if out.Data[0].DropReason != nil && out.Data[0].DropReason.Message != "" {
+			reason = out.Data[0].DropReason.Message
+		}
+		return &twitchAPIError{Status: http.StatusUnprocessableEntity, Message: reason}
+	}
+	return nil
+}
+
 // banOrTimeoutUser bans userID outright, or times them out for
 // durationSeconds if it's greater than zero.
 // https://dev.twitch.tv/docs/api/reference/#ban-user

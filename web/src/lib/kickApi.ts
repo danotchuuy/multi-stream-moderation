@@ -1,4 +1,5 @@
 import type { ChatBadge } from "./badges";
+import type { ChatReply } from "./chatDecorations";
 
 export type KickUser = {
   username: string;
@@ -53,12 +54,25 @@ export type KickChatMessage = {
   subscriber: boolean;
   broadcaster: boolean;
   badges: ChatBadge[];
+  /** The parent message this one is replying to, if any. */
+  reply?: ChatReply;
   timestamp: number;
 };
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   const text = await res.text();
   return text.trim() || fallback;
+}
+
+export async function sendKickChatMessage(channel: string, message: string): Promise<void> {
+  const res = await fetch("/api/kick/chat/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, message }),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));
+  }
 }
 
 export async function deleteKickChatMessage(messageId: string): Promise<void> {
@@ -69,6 +83,60 @@ export async function deleteKickChatMessage(messageId: string): Promise<void> {
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `delete failed: ${res.status}`));
   }
+}
+
+export type KickChannelInfo = {
+  title: string;
+  categoryId: number;
+  categoryName: string;
+};
+
+export async function fetchKickChannelInfo(channel: string): Promise<KickChannelInfo> {
+  const params = new URLSearchParams({ channel });
+  const res = await fetch(`/api/kick/channel-info?${params}`);
+  if (!res.ok) {
+    throw new Error(
+      await readErrorMessage(res, `failed to load channel info: ${res.status}`),
+    );
+  }
+  return res.json();
+}
+
+/** updateKickChannelInfo always applies to the signed-in user's own
+ * channel — Kick identifies it from the access token, with no
+ * broadcaster ID to pass. */
+export async function updateKickChannelInfo(updates: {
+  title?: string;
+  categoryId?: number;
+}): Promise<void> {
+  const res = await fetch("/api/kick/channel-info", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `update failed: ${res.status}`));
+  }
+}
+
+export type KickCategoryOption = {
+  id: number;
+  name: string;
+  image: string;
+};
+
+export async function searchKickCategories(
+  query: string,
+): Promise<KickCategoryOption[]> {
+  const params = new URLSearchParams({ query });
+  const res = await fetch(`/api/kick/categories?${params}`);
+  if (!res.ok) {
+    throw new Error(
+      await readErrorMessage(res, `category search failed: ${res.status}`),
+    );
+  }
+  const data = (await res.json()) as { categories: KickCategoryOption[] };
+  return data.categories;
 }
 
 export async function banKickChatter(

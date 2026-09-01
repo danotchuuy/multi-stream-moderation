@@ -28,7 +28,11 @@ const (
 	//   - moderation:ban: ban/timeout chatters.
 	//   - events:subscribe: required to receive chat messages at all —
 	//     Kick's public API has no endpoint to read chat, only webhooks.
-	kickOAuthScopes = "user:read channel:read moderation:chat_message:manage moderation:ban events:subscribe"
+	//   - chat:write: send chat messages as themselves.
+	//   - channel:write: update their own stream's title and category.
+	//     Kick identifies the channel purely from the token, so this only
+	//     ever applies to the signed-in user's own channel.
+	kickOAuthScopes = "user:read channel:read moderation:chat_message:manage moderation:ban events:subscribe chat:write channel:write"
 )
 
 // generatePKCE returns a fresh Authorization Code + PKCE pair: a random

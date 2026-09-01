@@ -179,6 +179,49 @@ func (s *Server) handleDeleteKickChatMessage(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type kickSendMessageRequestDTO struct {
+	Channel string `json:"channel"`
+	Message string `json:"message"`
+}
+
+// handleSendKickChatMessage posts a new chat message to the channel,
+// sent as the signed-in user themselves.
+func (s *Server) handleSendKickChatMessage(w http.ResponseWriter, r *http.Request) {
+	sess := s.kickSessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req kickSendMessageRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeKickChannel(req.Channel)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, channel)
+	if err != nil {
+		http.Error(w, "could not resolve channel", http.StatusBadGateway)
+		return
+	}
+
+	if err := sendKickChatMessage(r.Context(), sess.AccessToken, broadcasterID, message); err != nil {
+		writeKickAPIError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type kickBanRequestDTO struct {
 	Channel string `json:"channel"`
 	UserID  int64  `json:"userId"`
@@ -294,7 +337,10 @@ type kickChatMessageDTO struct {
 	Subscriber  bool           `json:"subscriber"`
 	Broadcaster bool           `json:"broadcaster"`
 	Badges      []chatBadgeDTO `json:"badges"`
-	Timestamp   int64          `json:"timestamp"`
+	// Reply is the parent message this one is replying to, if any (see
+	// chatReplyDTO in handlers_chat.go).
+	Reply     *chatReplyDTO `json:"reply,omitempty"`
+	Timestamp int64         `json:"timestamp"`
 }
 
 // kickBadgeDTOs converts a chatter's Kick badges to the shared DTO
@@ -408,7 +454,7 @@ func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEv
 		if identity != nil {
 			color = identity.UsernameColor
 		}
-		writeSSE(w, "message", kickChatMessageDTO{
+		dto := kickChatMessageDTO{
 			ID:          m.MessageID,
 			Channel:     channel,
 			Text:        m.Content,
@@ -420,7 +466,14 @@ func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEv
 			Broadcaster: identity.hasBadge("broadcaster"),
 			Badges:      kickBadgeDTOs(identity),
 			Timestamp:   ts,
-		})
+		}
+		if m.RepliesTo != nil {
+			dto.Reply = &chatReplyDTO{
+				Username: m.RepliesTo.Sender.Username,
+				Text:     m.RepliesTo.Content,
+			}
+		}
+		writeSSE(w, "message", dto)
 	case "banned":
 		b := ev.banned
 		dto := kickBannedDTO{

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"sync"
+
+	"google.golang.org/grpc"
 )
 
 // Config controls how the server is constructed.
@@ -103,6 +105,13 @@ type Server struct {
 	kickChannelIDs   map[string]int64
 
 	youtubeAuth *youtubeAuthStore
+
+	// youtubeChatConn is a shared gRPC connection to YouTube's live chat
+	// streaming service, dialed lazily on first use by
+	// youtubeChatServiceClient (see youtube_stream.go).
+	youtubeChatConnOnce sync.Once
+	youtubeChatConn     *grpc.ClientConn
+	youtubeChatConnErr  error
 }
 
 // New builds a Server ready to serve.
@@ -140,6 +149,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/twitch/moderated-channels", s.handleModeratedChannels)
 	s.mux.HandleFunc("GET /api/chat/stream", s.handleChatStream)
 
+	s.mux.HandleFunc("GET /api/twitch/channel-info", s.handleGetTwitchChannelInfo)
+	s.mux.HandleFunc("PATCH /api/twitch/channel-info", s.handleUpdateTwitchChannelInfo)
+	s.mux.HandleFunc("GET /api/twitch/categories", s.handleSearchTwitchCategories)
+
+	s.mux.HandleFunc("POST /api/chat/messages", s.handleSendChatMessage)
 	s.mux.HandleFunc("DELETE /api/chat/messages", s.handleDeleteChatMessage)
 	s.mux.HandleFunc("POST /api/chat/bans", s.handleBanUser)
 	s.mux.HandleFunc("POST /api/chat/timeouts", s.handleTimeoutUser)
@@ -150,7 +164,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/kick/logout", s.handleKickAuthLogout)
 
 	s.mux.HandleFunc("GET /api/kick/channel", s.handleKickOwnChannel)
+	s.mux.HandleFunc("GET /api/kick/channel-info", s.handleGetKickChannelInfo)
+	s.mux.HandleFunc("PATCH /api/kick/channel-info", s.handleUpdateKickChannelInfo)
+	s.mux.HandleFunc("GET /api/kick/categories", s.handleSearchKickCategories)
 	s.mux.HandleFunc("GET /api/kick/chat/stream", s.handleKickChatStream)
+	s.mux.HandleFunc("POST /api/kick/chat/messages", s.handleSendKickChatMessage)
 	s.mux.HandleFunc("DELETE /api/kick/chat/messages", s.handleDeleteKickChatMessage)
 	s.mux.HandleFunc("POST /api/kick/bans", s.handleBanKickUser)
 	s.mux.HandleFunc("POST /api/kick/timeouts", s.handleTimeoutKickUser)
@@ -167,6 +185,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/youtube/live-chat/own", s.handleOwnYouTubeLiveChat)
 	s.mux.HandleFunc("GET /api/youtube/live-chat/resolve", s.handleResolveYouTubeVideo)
 	s.mux.HandleFunc("GET /api/youtube/chat/stream", s.handleYouTubeChatStream)
+	s.mux.HandleFunc("POST /api/youtube/chat/messages", s.handleSendYouTubeChatMessage)
 	s.mux.HandleFunc("DELETE /api/youtube/chat/messages", s.handleDeleteYouTubeChatMessage)
 	s.mux.HandleFunc("POST /api/youtube/bans", s.handleBanYouTubeUser)
 	s.mux.HandleFunc("POST /api/youtube/timeouts", s.handleTimeoutYouTubeUser)
@@ -190,7 +209,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if s.cfg.AllowedOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", s.cfg.AllowedOrigin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			w.Header().Set("Vary", "Origin")
 		}

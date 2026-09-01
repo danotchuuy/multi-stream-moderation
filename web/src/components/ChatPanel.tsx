@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useChatStream, type DisplayMessage } from "../lib/useChatStream";
+import { sendChatMessage } from "../lib/api";
 import { ModerationControls } from "./ModerationControls";
 import { ChatBadges } from "./ChatBadges";
+import { ChatComposer } from "./ChatComposer";
+import { TwitchChannelInfoMenu } from "./TwitchChannelInfoMenu";
 
 type Props = {
   channel: string;
@@ -49,6 +52,8 @@ export function ChatPanel({
         </button>
       </header>
 
+      {viewerIsBroadcaster && <TwitchChannelInfoMenu channel={channel} />}
+
       {actionError && (
         <p className="error mod-error">
           {actionError}{" "}
@@ -62,13 +67,30 @@ export function ChatPanel({
         {messages.map((m, i) => (
           <li
             key={m.id || `${m.timestamp}-${i}`}
-            className={m.system ? "chat-system" : m.deleted ? "chat-deleted" : undefined}
+            className={[
+              m.system ? "chat-system" : null,
+              m.deleted ? "chat-deleted" : null,
+              m.raid ? "chat-raid" : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined}
           >
             {m.system ? (
-              <span className="chat-text">{m.text}</span>
+              <span className="chat-text">{m.raid ? "🎉 " : ""}{m.text}</span>
             ) : (
               <>
+                {m.reply && (
+                  <span className="chat-reply-context">
+                    ↩ replying to <strong>{m.reply.displayName || m.reply.username}</strong>:{" "}
+                    {m.reply.text}
+                  </span>
+                )}
                 <ChatBadges badges={m.badges} />
+                {m.firstMessage && (
+                  <span className="chat-tag chat-tag-first" title="First message in this channel">
+                    first chat
+                  </span>
+                )}
                 <span className="chat-user" style={{ color: m.color || undefined }}>
                   {m.displayName || m.username}
                 </span>
@@ -91,6 +113,8 @@ export function ChatPanel({
           <li className="chat-empty">Waiting for messages...</li>
         )}
       </ul>
+
+      <ChatComposer onSend={(message) => sendChatMessage(channel, message)} />
     </div>
   );
 }

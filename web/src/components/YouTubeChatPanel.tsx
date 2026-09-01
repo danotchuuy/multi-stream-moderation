@@ -3,7 +3,9 @@ import {
   useYouTubeChatStream,
   type YouTubeDisplayMessage,
 } from "../lib/useYouTubeChatStream";
+import { sendYouTubeChatMessage } from "../lib/youtubeApi";
 import { YouTubeModerationControls } from "./YouTubeModerationControls";
+import { ChatComposer } from "./ChatComposer";
 
 type Props = {
   liveChatId: string;
@@ -84,6 +86,8 @@ export function YouTubeChatPanel({
           <li className="chat-empty">Waiting for messages...</li>
         )}
       </ul>
+
+      <ChatComposer onSend={(message) => sendYouTubeChatMessage(liveChatId, message)} />
     </div>
   );
 }

@@ -176,7 +176,10 @@ func (id *kickIdentity) hasBadge(badgeType string) bool {
 // kickChatMessageEvent is the chat.message.sent webhook payload.
 // https://docs.kick.com/events/event-types
 type kickChatMessageEvent struct {
-	MessageID   string `json:"message_id"`
+	MessageID string `json:"message_id"`
+	// RepliesTo is set when this message is a threaded reply to an
+	// earlier one; nil otherwise.
+	RepliesTo   *kickReplyRef `json:"replies_to"`
 	Broadcaster struct {
 		UserID      int64  `json:"user_id"`
 		ChannelSlug string `json:"channel_slug"`
@@ -188,6 +191,16 @@ type kickChatMessageEvent struct {
 	} `json:"sender"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"created_at"`
+}
+
+// kickReplyRef identifies the parent message a chat.message.sent event
+// is threaded to.
+type kickReplyRef struct {
+	MessageID string `json:"message_id"`
+	Content   string `json:"content"`
+	Sender    struct {
+		Username string `json:"username"`
+	} `json:"sender"`
 }
 
 // kickModerationBannedEvent is the moderation.banned webhook payload.

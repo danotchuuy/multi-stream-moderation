@@ -5,10 +5,20 @@ const MAX_MESSAGES = 200;
 
 /** A chat row as rendered: either a real message (optionally struck
  * through after a delete/ban/timeout) or a synthetic system notice about
- * a ban/timeout. */
+ * a ban/timeout/raid. */
 export type DisplayMessage = ChatMessage & {
   deleted?: boolean;
   system?: boolean;
+  /** Set on the synthetic notice for an incoming raid, so it can be
+   * styled more prominently than an ordinary system notice. */
+  raid?: boolean;
+};
+
+type RaidEvent = {
+  channel: string;
+  displayName: string;
+  login: string;
+  viewerCount: number;
 };
 
 type ClearMsgEvent = {
@@ -104,6 +114,27 @@ export function useChatStream(channel: string | null) {
         };
         return pushCapped(withDeletions, notice);
       });
+    });
+
+    source.addEventListener("raid", (event) => {
+      const raid = JSON.parse((event as MessageEvent).data) as RaidEvent;
+      const notice: DisplayMessage = {
+        id: `raid-${Date.now()}-${raid.login}`,
+        channel: raid.channel,
+        text: `${raid.displayName || "a channel"} is raiding with ${raid.viewerCount.toLocaleString()} viewer${raid.viewerCount === 1 ? "" : "s"}!`,
+        username: "",
+        displayName: "",
+        userId: "",
+        color: "",
+        mod: false,
+        subscriber: false,
+        broadcaster: false,
+        badges: [],
+        timestamp: Date.now(),
+        system: true,
+        raid: true,
+      };
+      setMessages((prev) => pushCapped(prev, notice));
     });
 
     return () => {
