@@ -18,6 +18,7 @@ import {
   type YouTubeLiveChatRef,
   type YouTubeUser,
 } from "./lib/youtubeApi";
+import { PlatformSection } from "./components/PlatformSection";
 import { ConnectTwitch } from "./components/ConnectTwitch";
 import { ChannelPicker } from "./components/ChannelPicker";
 import { ChatPanel } from "./components/ChatPanel";
@@ -220,7 +221,7 @@ function App() {
       </div>
 
       <div className="panels">
-        <section className="platform-panel">
+        <PlatformSection label="Twitch">
           {loading && <p>Loading...</p>}
           {!loading && !user && <ConnectTwitch error={authError} />}
           {!loading && user && !channel && (
@@ -240,9 +241,9 @@ function App() {
               onChangeChannel={handleChangeChannel}
             />
           )}
-        </section>
+        </PlatformSection>
 
-        <section className="platform-panel">
+        <PlatformSection label="Kick">
           {kickLoading && <p>Loading...</p>}
           {!kickLoading && !kickUser && <ConnectKick error={kickAuthError} />}
           {!kickLoading && kickUser && !kickChannel && (
@@ -260,9 +261,9 @@ function App() {
               onChangeChannel={handleChangeKickChannel}
             />
           )}
-        </section>
+        </PlatformSection>
 
-        <section className="platform-panel">
+        <PlatformSection label="YouTube">
           {youtubeLoading && <p>Loading...</p>}
           {!youtubeLoading && !youtubeUser && (
             <ConnectYouTube error={youtubeAuthError} />
@@ -282,7 +283,7 @@ function App() {
               onChangeStream={handleChangeYouTubeStream}
             />
           )}
-        </section>
+        </PlatformSection>
       </div>
     </main>
   );

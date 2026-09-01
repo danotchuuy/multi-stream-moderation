@@ -43,6 +43,10 @@ export function KickChatPanel({
   const spamGroups = useKickSpamGroups(messages, viewerIsBroadcaster);
   const [actionError, setActionError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  // Which message's moderation controls (if any) are currently
+  // expanded — toggled by clicking that message's username, one at a
+  // time, rather than showing every eligible message's controls at once.
+  const [openModFor, setOpenModFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
 
   return (
@@ -77,10 +81,20 @@ export function KickChatPanel({
           {messages.map((m, i) => (
             <li
               key={m.id || `${m.timestamp}-${i}`}
-              className={m.system ? "chat-system" : m.deleted ? "chat-deleted" : undefined}
+              className={[
+                m.seq % 2 === 1 ? "chat-row-alt" : null,
+                m.system ? "chat-system" : null,
+                m.deleted ? "chat-deleted" : null,
+                m.giftSub ? "chat-giftsub" : null,
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined}
             >
               {m.system ? (
-                <span className="chat-text">{m.text}</span>
+                <span className="chat-text">
+                  {m.giftSub ? "🎁 " : ""}
+                  {m.text}
+                </span>
               ) : (
                 <>
                   {m.reply && (
@@ -90,9 +104,31 @@ export function KickChatPanel({
                     </span>
                   )}
                   <ChatBadges badges={m.badges} />
-                  <span className="chat-user" style={{ color: m.color || undefined }}>
-                    {m.username}
-                  </span>
+                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
+                    <button
+                      type="button"
+                      className="chat-user chat-user-button"
+                      style={{ color: m.color || undefined }}
+                      aria-expanded={openModFor === m.id}
+                      title="Moderation options"
+                      onClick={() => setOpenModFor((cur) => (cur === m.id ? null : m.id))}
+                    >
+                      {m.username}
+                    </button>
+                  ) : (
+                    <span className="chat-user" style={{ color: m.color || undefined }}>
+                      {m.username}
+                    </span>
+                  )}
+                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) && openModFor === m.id && (
+                    <KickModerationControls
+                      channel={channel}
+                      messageId={m.id}
+                      userId={m.userId}
+                      onError={setActionError}
+                      onDeleted={markDeleted}
+                    />
+                  )}
                   <span className="chat-text">
                     {m.deleted ? (
                       "message deleted"
@@ -110,15 +146,6 @@ export function KickChatPanel({
                     >
                       ↩
                     </button>
-                  )}
-                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) && (
-                    <KickModerationControls
-                      channel={channel}
-                      messageId={m.id}
-                      userId={m.userId}
-                      onError={setActionError}
-                      onDeleted={markDeleted}
-                    />
                   )}
                 </>
               )}

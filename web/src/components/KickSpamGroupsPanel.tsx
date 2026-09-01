@@ -19,7 +19,7 @@ const TIMEOUT_PRESETS: { label: string; minutes: number }[] = [
 
 type Props = {
   channel: string;
-  groups: DuplicateMessageGroup[];
+  groups: DuplicateMessageGroup<number>[];
   onDeleted: (messageId: string) => void;
   onError: (message: string) => void;
 };
@@ -47,7 +47,7 @@ async function runAll<T>(
 }
 
 type GroupRowProps = Pick<Props, "channel" | "onDeleted" | "onError"> & {
-  group: DuplicateMessageGroup;
+  group: DuplicateMessageGroup<number>;
 };
 
 function GroupRow({ channel, group, onDeleted, onError }: GroupRowProps) {

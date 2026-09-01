@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 /** The message a reply, once sent, will be threaded under — set by
  * clicking "Reply" on a message in the chat log. */
@@ -26,6 +26,16 @@ export function ChatComposer({ onSend, replyTo, onCancelReply }: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Move focus to this channel's composer as soon as a reply target is
+  // picked, so the viewer can start typing immediately instead of having
+  // to click into the input themselves.
+  useEffect(() => {
+    if (replyTo) {
+      inputRef.current?.focus();
+    }
+  }, [replyTo?.id]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -65,6 +75,7 @@ export function ChatComposer({ onSend, replyTo, onCancelReply }: Props) {
       )}
       <div className="chat-composer-row">
         <input
+          ref={inputRef}
           type="text"
           className="chat-composer-input"
           value={text}

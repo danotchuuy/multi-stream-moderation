@@ -16,7 +16,7 @@ const RECHECK_INTERVAL_MS = 15_000;
 export function useKickSpamGroups(
   messages: KickDisplayMessage[],
   viewerIsBroadcaster: boolean,
-): DuplicateMessageGroup[] {
+): DuplicateMessageGroup<number>[] {
   const [recheckTick, setRecheckTick] = useState(0);
 
   useEffect(() => {

@@ -447,13 +447,28 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ensureKickSubscriptions(ctx, sess.AccessToken, broadcasterID); err != nil {
+	if err := s.ensureKickSubscriptions(ctx, broadcasterID); err != nil {
 		writeKickAPIError(w, err)
 		return
 	}
 
 	events, unsubscribe := s.kickHub.subscribe(broadcasterID)
-	defer unsubscribe()
+	defer func() {
+		if !unsubscribe() {
+			// Other viewers are still watching this channel — its
+			// webhook subscriptions stay in place for them.
+			return
+		}
+		// Best-effort, off the request's own context (which is done by
+		// the time this runs) so a slow Kick API doesn't hold anything
+		// open, and off the request's goroutine so this viewer's
+		// disconnect isn't held up by it either.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			s.removeKickEventSubscriptionsForBroadcaster(ctx, broadcasterID)
+		}()
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -486,13 +501,20 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ensureKickSubscriptions makes sure the app is subscribed to both
-// events this app cares about for broadcasterID.
-func (s *Server) ensureKickSubscriptions(ctx context.Context, accessToken string, broadcasterID int64) error {
-	if err := ensureKickEventSubscription(ctx, accessToken, broadcasterID, kickEventMessageSent); err != nil {
+// ensureKickSubscriptions makes sure the app is subscribed to the
+// webhook events it cares about for broadcasterID. Only
+// chat.message.sent is treated as essential here — moderation.banned
+// and channel.subscription.gifts add ban/timeout and gift-sub notices
+// on top of the core chat feed, but a failure subscribing to either of
+// those (e.g. an event type this app isn't approved for) shouldn't
+// take the whole chat stream down with it.
+func (s *Server) ensureKickSubscriptions(ctx context.Context, broadcasterID int64) error {
+	if err := s.ensureKickEventSubscription(ctx, broadcasterID, kickEventMessageSent); err != nil {
 		return err
 	}
-	return ensureKickEventSubscription(ctx, accessToken, broadcasterID, kickEventModerationBans)
+	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventModerationBans)
+	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventSubscriptionGifts)
+	return nil
 }
 
 // kickChatMessageDTOFromEvent builds the DTO sent to the browser for a
@@ -553,5 +575,16 @@ func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEv
 			}
 		}
 		writeSSE(w, "banned", dto)
+	case "giftsub":
+		g := ev.giftSubs
+		name := g.Gifter.Username
+		if g.Gifter.IsAnonymous || name == "" {
+			name = "An anonymous gifter"
+		}
+		writeSSE(w, "giftsub", giftSubDTO{
+			Channel:     channel,
+			DisplayName: name,
+			Count:       len(g.Giftees),
+		})
 	}
 }

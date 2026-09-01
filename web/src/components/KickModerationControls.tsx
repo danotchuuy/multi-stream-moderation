@@ -48,6 +48,8 @@ export function KickModerationControls({
       <button
         type="button"
         className="mod-button"
+        aria-label="Delete message"
+        title="Delete message"
         disabled={busy}
         onClick={() =>
           run(
@@ -56,10 +58,12 @@ export function KickModerationControls({
           )
         }
       >
-        Delete
+        🗑
       </button>
       <select
         className="mod-select"
+        aria-label="Timeout"
+        title="Timeout"
         disabled={busy}
         value=""
         onChange={(e) => {
@@ -71,7 +75,7 @@ export function KickModerationControls({
         }}
       >
         <option value="" disabled>
-          Timeout...
+          ⏱
         </option>
         {TIMEOUT_PRESETS.map((preset) => (
           <option key={preset.minutes} value={preset.minutes}>
@@ -82,10 +86,12 @@ export function KickModerationControls({
       <button
         type="button"
         className="mod-button mod-button-danger"
+        aria-label="Ban"
+        title="Ban"
         disabled={busy}
         onClick={() => run(() => banKickChatter(channel, userId))}
       >
-        Ban
+        🔨
       </button>
     </span>
   );

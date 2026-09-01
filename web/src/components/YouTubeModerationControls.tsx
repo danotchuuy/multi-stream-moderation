@@ -51,6 +51,8 @@ export function YouTubeModerationControls({
       <button
         type="button"
         className="mod-button"
+        aria-label="Delete message"
+        title="Delete message"
         disabled={busy}
         onClick={() =>
           run(
@@ -59,10 +61,12 @@ export function YouTubeModerationControls({
           )
         }
       >
-        Delete
+        🗑
       </button>
       <select
         className="mod-select"
+        aria-label="Timeout"
+        title="Timeout"
         disabled={busy}
         value=""
         onChange={(e) => {
@@ -74,7 +78,7 @@ export function YouTubeModerationControls({
         }}
       >
         <option value="" disabled>
-          Timeout...
+          ⏱
         </option>
         {TIMEOUT_PRESETS.map((preset) => (
           <option key={preset.seconds} value={preset.seconds}>
@@ -85,10 +89,12 @@ export function YouTubeModerationControls({
       <button
         type="button"
         className="mod-button mod-button-danger"
+        aria-label="Ban"
+        title="Ban"
         disabled={busy}
         onClick={() => run(() => banYouTubeChatter(liveChatId, channelId))}
       >
-        Ban
+        🔨
       </button>
     </span>
   );

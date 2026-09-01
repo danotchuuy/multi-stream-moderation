@@ -43,6 +43,12 @@
   .theme-toggle {
     position: static;
   }
+
+  /* No chat-panel override needed here: the stacked header above adds
+     a row, but .app's margin also shrinks from 4rem to 2rem on this
+     same breakpoint (see the other max-width: 640px block below),
+     which roughly cancels out — the base max-height's chrome estimate
+     already covers both changes. */
 }
 
 .panels {
@@ -56,6 +62,21 @@
 .platform-panel {
   flex: 1 1 420px;
   min-width: 0;
+}
+
+.platform-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.platform-panel-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .card {
@@ -157,6 +178,23 @@
 
 .chat-panel {
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  /* Bounds the whole panel (header + log + composer) to fit within the
+     browser window. Without this, chat-log's own fixed height could
+     push the composer below the visible area on a short window,
+     leaving it needing a page scroll to reach rather than always
+     staying in view.
+
+     The subtracted amount has to cover everything else on the page
+     that eats into that 100vh, or the panel still ends up slightly
+     taller than the actual space left and the whole page grows a
+     scrollbar: .app's top *and* bottom margin (4rem + 4rem — easy to
+     forget the bottom one, since it comes after the panel, not
+     before), .app-header's rendered height (~3rem), and .card's own
+     margin-top (1.5rem). That's ~12.5rem of chrome; 13rem leaves a
+     little slack. */
+  max-height: calc(100vh - 13rem);
 }
 
 .chat-header {
@@ -164,6 +202,7 @@
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 0.75rem;
+  flex-shrink: 0;
 }
 
 .chat-header h2 {
@@ -183,10 +222,16 @@
   list-style: none;
   padding: 0;
   margin: 0;
-  /* A fixed height (not max-height) so the log stays a constant size
-     as messages arrive/scroll off, rather than growing and shrinking
-     with however much content currently fits. */
-  height: 60vh;
+  /* Fills whatever space is left in chat-panel's viewport-bounded
+     max-height after the header/composer take theirs, so the log
+     stays a constant size as messages arrive/scroll off (rather than
+     growing and shrinking with however much content currently fits)
+     without ever pushing the composer out of view. min-height: 0
+     overrides flexbox's default "never shrink below content size" so
+     overflow-y can actually kick in instead of the panel just growing
+     past its own max-height. */
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -202,7 +247,14 @@
   word-break: break-word;
 }
 
-.chat-log li:nth-child(odd) {
+/* Deliberately not :nth-child(odd) — the log is a sliding window
+   (oldest message dropped as new ones arrive past the cap), so a
+   message's DOM position shifts by one on every single new message
+   once that cap is hit, flipping every row's :nth-child parity (and
+   so its stripe) on every message. .chat-row-alt is driven by each
+   message's own stamped arrival order instead (see DisplayMessage.seq
+   in useChatStream.ts), which never changes once assigned. */
+.chat-log li.chat-row-alt {
   background: var(--stripe-bg);
 }
 
@@ -220,9 +272,30 @@
   cursor: default;
 }
 
+.chat-badge-image {
+  width: 1.1rem;
+  height: 1.1rem;
+  vertical-align: middle;
+}
+
 .chat-user {
   font-weight: 600;
   margin-right: 0.4rem;
+}
+
+.chat-user-button {
+  /* Reset button chrome so a moderator's clickable username still
+     looks like plain text, not a form control. */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-user-button:hover,
+.chat-user-button:focus-visible {
+  text-decoration: underline;
 }
 
 .chat-text {
@@ -255,6 +328,14 @@
 .chat-log li.chat-raid {
   background: var(--raid-bg);
   border: 1px solid var(--raid-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-giftsub {
+  background: var(--giftsub-bg);
+  border: 1px solid var(--giftsub-border);
   border-radius: 4px;
   font-weight: 600;
   font-style: normal;
@@ -325,13 +406,16 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  margin-left: 0.5rem;
+  /* Appears between the username (which reveals it on click) and the
+     message text, so it needs breathing room on both sides. */
+  margin: 0 0.5rem;
 }
 
 .mod-button,
 .mod-select {
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  padding: 0.1rem 0.35rem;
   border-radius: 4px;
   border: 1px solid var(--input-border);
   background: var(--control-bg);
@@ -369,6 +453,7 @@
 
 .chat-composer {
   margin-top: 0.75rem;
+  flex-shrink: 0;
 }
 
 .chat-composer-reply {

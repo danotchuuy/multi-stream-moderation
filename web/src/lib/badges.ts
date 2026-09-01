@@ -7,6 +7,11 @@ export type ChatBadge = {
   /** Distinguishes tiers within a badge — a subscriber badge's version
    * is their sub month count (Twitch) or tenure count (Kick). */
   version?: string;
+  /** The exact badge image Twitch itself shows for this badge/version,
+   * when known. Always unset for Kick, which has no equivalent lookup
+   * in this app — those (and any unrecognized Twitch badge/version)
+   * fall back to the icon table below. */
+  imageUrl?: string;
 };
 
 type BadgeVisual = {

@@ -3,9 +3,14 @@
 package server
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 )
@@ -95,9 +100,22 @@ type Server struct {
 	channelIDsMu sync.Mutex
 	channelIDs   map[string]string
 
+	// twitchBadges caches each broadcaster's badge catalog (see
+	// twitch_badges.go), so a badge on an incoming chat message can be
+	// resolved to Twitch's own image for it without refetching on every
+	// chat connection.
+	twitchBadgesMu sync.Mutex
+	twitchBadges   map[string]twitchBadgeCatalog
+
 	kickAuth      *kickAuthStore
 	kickHub       *kickHub
 	kickPublicKey *kickPublicKeyCache
+	// kickAppToken caches the app-level access token used for webhook
+	// subscription management (see kickAppTokenCache in
+	// kick_webhooks.go) — never a signed-in viewer's own token, which
+	// Kick would silently attribute subscriptions to instead of the
+	// broadcaster actually being watched.
+	kickAppToken *kickAppTokenCache
 
 	// kickChannelIDs caches the slug -> broadcaster_user_id lookups
 	// needed by Kick's moderation and event-subscription endpoints.
@@ -123,14 +141,16 @@ type Server struct {
 // New builds a Server ready to serve.
 func New(cfg Config) *Server {
 	s := &Server{
-		cfg:        cfg,
-		mux:        http.NewServeMux(),
-		auth:       newAuthStore(cfg.SessionStoreFile, cfg.SessionEncryptionKey),
-		channelIDs: make(map[string]string),
+		cfg:          cfg,
+		mux:          http.NewServeMux(),
+		auth:         newAuthStore(cfg.SessionStoreFile, cfg.SessionEncryptionKey),
+		channelIDs:   make(map[string]string),
+		twitchBadges: make(map[string]twitchBadgeCatalog),
 
 		kickAuth:       newKickAuthStore(cfg.KickSessionStoreFile, cfg.SessionEncryptionKey),
 		kickHub:        newKickHub(),
 		kickPublicKey:  &kickPublicKeyCache{},
+		kickAppToken:   &kickAppTokenCache{},
 		kickChannelIDs: make(map[string]int64),
 
 		twitchChatHistory: newChatHistoryCache[string, chatMessageDTO](chatHistoryLimit, func(m chatMessageDTO) string { return m.ID }),
@@ -139,12 +159,67 @@ func New(cfg Config) *Server {
 		youtubeAuth: newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
 	}
 	s.routes()
+
+	// Best-effort and non-blocking: this shouldn't delay startup or stop
+	// the server from coming up if Kick is slow/unreachable. clearKickWebhookSubscriptionsBestEffort
+	// runs the same cleanup again on a clean shutdown (see ListenAndServe)
+	// so subscriptions don't linger either way.
+	go s.clearKickWebhookSubscriptionsBestEffort("startup")
+
 	return s
 }
 
-// ListenAndServe starts the HTTP server.
+// clearKickWebhookSubscriptionsBestEffort clears every Kick webhook
+// subscription this app currently has, logging (rather than
+// propagating) any failure — Kick being slow, unreachable, or rejecting
+// the request is never worth blocking startup or shutdown over. No-op
+// if Kick isn't configured. when is folded into the log line on
+// failure ("startup" or "shutdown") so it's clear which call failed.
+func (s *Server) clearKickWebhookSubscriptionsBestEffort(when string) {
+	if s.cfg.KickClientID == "" || s.cfg.KickClientSecret == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := clearKickWebhookSubscriptions(ctx, s.cfg); err != nil {
+		log.Printf("kick: could not clear webhook subscriptions on %s: %v", when, err)
+	}
+}
+
+// ListenAndServe starts the HTTP server and blocks until it's told to
+// stop — via SIGINT/SIGTERM, or the listener failing outright — clearing
+// out this app's Kick webhook subscriptions on the way out either way
+// they were left registered by clearKickWebhookSubscriptionsBestEffort's
+// startup call, this is what removes them again on a normal shutdown,
+// rather than leaving them sitting on Kick's side until the process
+// happens to start back up.
 func (s *Server) ListenAndServe() error {
-	return http.ListenAndServe(":"+s.cfg.Port, s.withCORS(s.mux))
+	httpServer := &http.Server{
+		Addr:    ":" + s.cfg.Port,
+		Handler: s.withCORS(s.mux),
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- httpServer.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErr:
+		// The listener itself failed (e.g. the port's already in use) —
+		// nothing was ever serving, so there's nothing to clean up.
+		return err
+	case <-ctx.Done():
+	}
+
+	s.clearKickWebhookSubscriptionsBestEffort("shutdown")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return httpServer.Shutdown(shutdownCtx)
 }
 
 func (s *Server) routes() {

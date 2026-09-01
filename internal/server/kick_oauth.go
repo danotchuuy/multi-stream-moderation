@@ -86,6 +86,20 @@ func refreshKickToken(ctx context.Context, cfg Config, refreshToken string) (*ki
 	})
 }
 
+// fetchKickAppAccessToken exchanges the app's own client credentials
+// for an app-level access token — one not tied to any signed-in user,
+// usable for calls that need to happen before anyone has authorized
+// (e.g. clearing out webhook subscriptions at startup). Unlike the
+// authorization-code grant above, this issues no refresh token; callers
+// just fetch a fresh one each time they need it.
+func fetchKickAppAccessToken(ctx context.Context, cfg Config) (*kickTokenResponse, error) {
+	return postKickTokenRequest(ctx, url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {cfg.KickClientID},
+		"client_secret": {cfg.KickClientSecret},
+	})
+}
+
 func postKickTokenRequest(ctx context.Context, form url.Values) (*kickTokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, kickTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {

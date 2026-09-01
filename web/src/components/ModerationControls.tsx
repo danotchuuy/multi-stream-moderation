@@ -41,13 +41,17 @@ export function ModerationControls({ channel, messageId, userId, onError }: Prop
       <button
         type="button"
         className="mod-button"
+        aria-label="Delete message"
+        title="Delete message"
         disabled={busy}
         onClick={() => run(() => deleteChatMessage(channel, messageId))}
       >
-        Delete
+        🗑
       </button>
       <select
         className="mod-select"
+        aria-label="Timeout"
+        title="Timeout"
         disabled={busy}
         value=""
         onChange={(e) => {
@@ -59,7 +63,7 @@ export function ModerationControls({ channel, messageId, userId, onError }: Prop
         }}
       >
         <option value="" disabled>
-          Timeout...
+          ⏱
         </option>
         {TIMEOUT_PRESETS.map((preset) => (
           <option key={preset.seconds} value={preset.seconds}>
@@ -70,10 +74,12 @@ export function ModerationControls({ channel, messageId, userId, onError }: Prop
       <button
         type="button"
         className="mod-button mod-button-danger"
+        aria-label="Ban"
+        title="Ban"
         disabled={busy}
         onClick={() => run(() => banChatter(channel, userId))}
       >
-        Ban
+        🔨
       </button>
     </span>
   );

@@ -20,6 +20,8 @@
   --spam-bg: #fffbea;
   --raid-border: #9146ff;
   --raid-bg: #f3ebff;
+  --giftsub-border: #d97706;
+  --giftsub-bg: #fff3e0;
   --first-chat-fg: #0a6e0a;
   --first-chat-bg: #e3f7e3;
 }
@@ -46,6 +48,8 @@
   --spam-bg: #2a2413;
   --raid-border: #9146ff;
   --raid-bg: #241a35;
+  --giftsub-border: #d97706;
+  --giftsub-bg: #33230e;
   --first-chat-fg: #6fe36f;
   --first-chat-bg: #16301a;
 }

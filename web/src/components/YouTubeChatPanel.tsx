@@ -19,7 +19,7 @@ function canModerateMessage(
   m: YouTubeDisplayMessage,
   viewerIsBroadcaster: boolean,
 ): boolean {
-  if (m.deleted) return false;
+  if (m.system || m.deleted) return false;
   if (m.broadcaster) return false;
   if (m.mod && !viewerIsBroadcaster) return false;
   return true;
@@ -34,6 +34,10 @@ export function YouTubeChatPanel({
   const { messages, connected, streamError, markDeleted } =
     useYouTubeChatStream(liveChatId);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Which message's moderation controls (if any) are currently
+  // expanded — toggled by clicking that message's username, one at a
+  // time, rather than showing every eligible message's controls at once.
+  const [openModFor, setOpenModFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
 
   return (
@@ -67,20 +71,45 @@ export function YouTubeChatPanel({
         {messages.map((m, i) => (
           <li
             key={m.id || `${m.timestamp}-${i}`}
-            className={m.deleted ? "chat-deleted" : undefined}
+            className={[
+              m.seq % 2 === 1 ? "chat-row-alt" : null,
+              m.system ? "chat-system" : null,
+              m.deleted ? "chat-deleted" : null,
+              m.giftSub ? "chat-giftsub" : null,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined}
           >
-            <span className="chat-user">{m.displayName}</span>
-            <span className="chat-text">
-              {m.deleted ? "message deleted" : m.text}
-            </span>
-            {canModerate && canModerateMessage(m, viewerIsBroadcaster) && (
-              <YouTubeModerationControls
-                liveChatId={liveChatId}
-                messageId={m.id}
-                channelId={m.channelId}
-                onError={setActionError}
-                onDeleted={markDeleted}
-              />
+            {m.system ? (
+              <span className="chat-text">{m.giftSub ? "🎁 " : ""}{m.text}</span>
+            ) : (
+              <>
+                {canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
+                  <button
+                    type="button"
+                    className="chat-user chat-user-button"
+                    aria-expanded={openModFor === m.id}
+                    title="Moderation options"
+                    onClick={() => setOpenModFor((cur) => (cur === m.id ? null : m.id))}
+                  >
+                    {m.displayName}
+                  </button>
+                ) : (
+                  <span className="chat-user">{m.displayName}</span>
+                )}
+                {canModerate && canModerateMessage(m, viewerIsBroadcaster) && openModFor === m.id && (
+                  <YouTubeModerationControls
+                    liveChatId={liveChatId}
+                    messageId={m.id}
+                    channelId={m.channelId}
+                    onError={setActionError}
+                    onDeleted={markDeleted}
+                  />
+                )}
+                <span className="chat-text">
+                  {m.deleted ? "message deleted" : m.text}
+                </span>
+              </>
             )}
           </li>
         ))}

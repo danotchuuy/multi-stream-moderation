@@ -1,18 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
 import type { YouTubeChatMessage } from "./youtubeApi";
 
-const MAX_MESSAGES = 200;
+const MAX_MESSAGES = 1000;
 
 export type YouTubeDisplayMessage = YouTubeChatMessage & {
   deleted?: boolean;
+  /** Set on the synthetic notice for a gift membership / community
+   * gift, distinguishing it from a real chat message. */
+  system?: boolean;
+  giftSub?: boolean;
+  /** Monotonically increasing arrival order, stamped by pushCapped —
+   * see the matching field on DisplayMessage in useChatStream.ts for
+   * why this exists instead of using a message's position in the
+   * array for the chat log's alternating row background. */
+  seq: number;
+};
+
+/** A single gift or a batch gifted at once — just the gifter and how
+ * many, never who each one went to (see giftSubDTO in
+ * internal/server/handlers_chat.go). */
+type GiftSubEvent = {
+  displayName: string;
+  count: number;
 };
 
 function pushCapped(
   list: YouTubeDisplayMessage[],
-  next: YouTubeDisplayMessage,
+  next: Omit<YouTubeDisplayMessage, "seq">,
 ): YouTubeDisplayMessage[] {
+  const seq = (list[list.length - 1]?.seq ?? 0) + 1;
   const trimmed = list.length >= MAX_MESSAGES ? list.slice(1) : list;
-  return [...trimmed, next];
+  return [...trimmed, { ...next, seq }];
 }
 
 /** useYouTubeChatStream opens a server-sent-events connection to
@@ -44,6 +62,24 @@ export function useYouTubeChatStream(liveChatId: string | null) {
     source.addEventListener("message", (event) => {
       const msg = JSON.parse((event as MessageEvent).data) as YouTubeChatMessage;
       setMessages((prev) => pushCapped(prev, msg));
+    });
+
+    source.addEventListener("giftsub", (event) => {
+      const gift = JSON.parse((event as MessageEvent).data) as GiftSubEvent;
+      const notice: Omit<YouTubeDisplayMessage, "seq"> = {
+        id: `giftsub-${Date.now()}-${gift.displayName}`,
+        text: `${gift.displayName || "Someone"} gifted ${gift.count} membership${gift.count === 1 ? "" : "s"}!`,
+        displayName: "",
+        channelId: "",
+        profileImage: "",
+        mod: false,
+        subscriber: false,
+        broadcaster: false,
+        timestamp: Date.now(),
+        system: true,
+        giftSub: true,
+      };
+      setMessages((prev) => pushCapped(prev, notice));
     });
 
     source.addEventListener("streamError", (event) => {

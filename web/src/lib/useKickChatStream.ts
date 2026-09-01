@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import type { KickChatMessage } from "./kickApi";
 
-const MAX_MESSAGES = 200;
+const MAX_MESSAGES = 1000;
 
 export type KickDisplayMessage = KickChatMessage & {
   deleted?: boolean;
   system?: boolean;
+  /** Set on the synthetic notice for a gift sub / community gift, so it
+   * can be styled distinctly from an ordinary system notice. */
+  giftSub?: boolean;
+  /** Monotonically increasing arrival order, stamped by pushCapped —
+   * see the matching field on DisplayMessage in useChatStream.ts for
+   * why this exists instead of using a message's position in the
+   * array for the chat log's alternating row background. */
+  seq: number;
 };
 
 type KickBannedEvent = {
@@ -15,12 +23,22 @@ type KickBannedEvent = {
   durationMinutes?: number;
 };
 
+/** A single gift or a batch gifted at once — just the gifter and how
+ * many, never who each one went to (see giftSubDTO in
+ * internal/server/handlers_chat.go). */
+type GiftSubEvent = {
+  channel: string;
+  displayName: string;
+  count: number;
+};
+
 function pushCapped(
   list: KickDisplayMessage[],
-  next: KickDisplayMessage,
+  next: Omit<KickDisplayMessage, "seq">,
 ): KickDisplayMessage[] {
+  const seq = (list[list.length - 1]?.seq ?? 0) + 1;
   const trimmed = list.length >= MAX_MESSAGES ? list.slice(1) : list;
-  return [...trimmed, next];
+  return [...trimmed, { ...next, seq }];
 }
 
 function formatMinutes(minutes: number): string {
@@ -63,7 +81,7 @@ export function useKickChatStream(channel: string | null) {
         const withDeletions = prev.map((m) =>
           m.userId === banned.userId ? { ...m, deleted: true } : m,
         );
-        const notice: KickDisplayMessage = {
+        const notice: Omit<KickDisplayMessage, "seq"> = {
           id: `notice-${Date.now()}-${banned.userId}`,
           channel: banned.channel,
           text: banned.durationMinutes
@@ -81,6 +99,26 @@ export function useKickChatStream(channel: string | null) {
         };
         return pushCapped(withDeletions, notice);
       });
+    });
+
+    source.addEventListener("giftsub", (event) => {
+      const gift = JSON.parse((event as MessageEvent).data) as GiftSubEvent;
+      const notice: Omit<KickDisplayMessage, "seq"> = {
+        id: `giftsub-${Date.now()}-${gift.displayName}`,
+        channel: gift.channel,
+        text: `${gift.displayName || "Someone"} gifted ${gift.count} sub${gift.count === 1 ? "" : "s"}!`,
+        username: "",
+        userId: 0,
+        color: "",
+        mod: false,
+        subscriber: false,
+        broadcaster: false,
+        badges: [],
+        timestamp: Date.now(),
+        system: true,
+        giftSub: true,
+      };
+      setMessages((prev) => pushCapped(prev, notice));
     });
 
     return () => {

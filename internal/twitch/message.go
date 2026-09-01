@@ -93,15 +93,35 @@ type ClearUserMessages struct {
 
 // ChatNotification is a channel.chat.notification notification's event
 // payload — Twitch's catch-all for chat-room announcements (raids, subs,
-// gifts, ...). Only the fields this app currently uses (raids) are
-// parsed; see NoticeType for the full set of possible values.
+// gifts, ...). Only the fields this app currently uses (raids and gift
+// subs) are parsed; see NoticeType for the full set of possible values.
 // https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-chat-notification-event
 type ChatNotification struct {
 	NoticeType string `json:"notice_type"`
-	Raid       *struct {
+	// ChatterUserName identifies whoever triggered this notification —
+	// e.g. the gifter for a sub_gift/community_sub_gift — unless
+	// ChatterIsAnonymous is set, in which case they chose not to be
+	// named and ChatterUserName is empty.
+	ChatterUserName    string `json:"chatter_user_name"`
+	ChatterIsAnonymous bool   `json:"chatter_is_anonymous"`
+	Raid               *struct {
 		UserID      string `json:"user_id"`
 		UserLogin   string `json:"user_login"`
 		UserName    string `json:"user_name"`
 		ViewerCount int    `json:"viewer_count"`
 	} `json:"raid"`
+	// SubGift is set for notice_type "sub_gift": a single gifted sub.
+	// When it's one of several gifted together, CommunityGiftID is set
+	// and CommunitySubGift (on the accompanying community_sub_gift
+	// notification) already reports the whole batch — see
+	// writeTwitchNotification, which skips these to avoid
+	// double-counting.
+	SubGift *struct {
+		CommunityGiftID *string `json:"community_gift_id"`
+	} `json:"sub_gift"`
+	// CommunitySubGift is set for notice_type "community_sub_gift": a
+	// gifter giving Total subs to the community at once.
+	CommunitySubGift *struct {
+		Total int `json:"total"`
+	} `json:"community_sub_gift"`
 }

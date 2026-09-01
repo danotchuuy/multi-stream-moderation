@@ -118,6 +118,50 @@ func TestKickBadgeHelpers(t *testing.T) {
 	}
 }
 
+func TestKickHubUnsubscribeReportsWhenLastSubscriberLeaves(t *testing.T) {
+	h := newKickHub()
+
+	_, unsubscribeA := h.subscribe(1)
+	_, unsubscribeB := h.subscribe(1)
+
+	if h.subscriberCount(1) != 2 {
+		t.Fatalf("subscriberCount = %d, want 2", h.subscriberCount(1))
+	}
+
+	if wasLast := unsubscribeA(); wasLast {
+		t.Error("unsubscribeA() reported wasLast=true, but subscriber B is still watching")
+	}
+	if h.subscriberCount(1) != 1 {
+		t.Fatalf("subscriberCount after first unsubscribe = %d, want 1", h.subscriberCount(1))
+	}
+
+	if wasLast := unsubscribeB(); !wasLast {
+		t.Error("unsubscribeB() reported wasLast=false, but it was the only subscriber left")
+	}
+	if h.subscriberCount(1) != 0 {
+		t.Fatalf("subscriberCount after last unsubscribe = %d, want 0", h.subscriberCount(1))
+	}
+}
+
+func TestKickHubSubscriberCountIsPerBroadcaster(t *testing.T) {
+	h := newKickHub()
+
+	_, unsubA := h.subscribe(1)
+	_, unsubB := h.subscribe(2)
+	defer unsubA()
+	defer unsubB()
+
+	if h.subscriberCount(1) != 1 {
+		t.Errorf("subscriberCount(1) = %d, want 1", h.subscriberCount(1))
+	}
+	if h.subscriberCount(2) != 1 {
+		t.Errorf("subscriberCount(2) = %d, want 1", h.subscriberCount(2))
+	}
+	if h.subscriberCount(3) != 0 {
+		t.Errorf("subscriberCount(3) = %d, want 0 for a broadcaster nobody's watching", h.subscriberCount(3))
+	}
+}
+
 func TestKickBadgeDTOs(t *testing.T) {
 	if got := kickBadgeDTOs(nil); got != nil {
 		t.Errorf("kickBadgeDTOs(nil) = %#v, want nil", got)

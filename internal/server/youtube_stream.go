@@ -139,25 +139,40 @@ func (s *Server) relayYouTubeChatStream(ctx context.Context, client youtubepb.V3
 
 func writeYouTubeChatMessage(w http.ResponseWriter, item *youtubepb.LiveChatMessage) {
 	snippet := item.GetSnippet()
-	if snippet.GetType() != youtubepb.LiveChatMessageSnippet_TypeWrapper_TEXT_MESSAGE_EVENT || !snippet.GetHasDisplayContent() {
-		return
-	}
 
-	ts := time.Now().UnixMilli()
-	if parsed, err := time.Parse(time.RFC3339, snippet.GetPublishedAt()); err == nil {
-		ts = parsed.UnixMilli()
-	}
+	switch snippet.GetType() {
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_TEXT_MESSAGE_EVENT:
+		if !snippet.GetHasDisplayContent() {
+			return
+		}
 
-	author := item.GetAuthorDetails()
-	writeSSE(w, "message", youtubeChatMessageDTO{
-		ID:           item.GetId(),
-		Text:         snippet.GetDisplayMessage(),
-		DisplayName:  author.GetDisplayName(),
-		ChannelID:    author.GetChannelId(),
-		ProfileImage: author.GetProfileImageUrl(),
-		Mod:          author.GetIsChatModerator(),
-		Subscriber:   author.GetIsChatSponsor(),
-		Broadcaster:  author.GetIsChatOwner(),
-		Timestamp:    ts,
-	})
+		ts := time.Now().UnixMilli()
+		if parsed, err := time.Parse(time.RFC3339, snippet.GetPublishedAt()); err == nil {
+			ts = parsed.UnixMilli()
+		}
+
+		author := item.GetAuthorDetails()
+		writeSSE(w, "message", youtubeChatMessageDTO{
+			ID:           item.GetId(),
+			Text:         snippet.GetDisplayMessage(),
+			DisplayName:  author.GetDisplayName(),
+			ChannelID:    author.GetChannelId(),
+			ProfileImage: author.GetProfileImageUrl(),
+			Mod:          author.GetIsChatModerator(),
+			Subscriber:   author.GetIsChatSponsor(),
+			Broadcaster:  author.GetIsChatOwner(),
+			Timestamp:    ts,
+		})
+
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_MEMBERSHIP_GIFTING_EVENT:
+		// The gifter's own announcement, reporting the whole batch at
+		// once. The per-recipient "gift membership received" notices
+		// (GIFT_MEMBERSHIP_RECEIVED_EVENT, one per giftee) are
+		// deliberately left unhandled below — showing each recipient
+		// too would just be noise on top of this summary.
+		writeSSE(w, "giftsub", giftSubDTO{
+			DisplayName: item.GetAuthorDetails().GetDisplayName(),
+			Count:       int(snippet.GetMembershipGiftingDetails().GetGiftMembershipsCount()),
+		})
+	}
 }
