@@ -22,6 +22,16 @@
   --raid-bg: #f3ebff;
   --giftsub-border: #d97706;
   --giftsub-bg: #fff3e0;
+  --sub-border: #db2777;
+  --sub-bg: #fdecf4;
+  --watchstreak-border: #ea580c;
+  --watchstreak-bg: #fff2e8;
+  --cheer-border: #0891b2;
+  --cheer-bg: #e7f9fc;
+  --automod-border: #2563eb;
+  --automod-bg: #eaf1ff;
+  --kicksgifted-border: #2e9c00;
+  --kicksgifted-bg: #eafce6;
   --first-chat-fg: #0a6e0a;
   --first-chat-bg: #e3f7e3;
 }
@@ -50,6 +60,16 @@
   --raid-bg: #241a35;
   --giftsub-border: #d97706;
   --giftsub-bg: #33230e;
+  --sub-border: #ec4899;
+  --sub-bg: #37172a;
+  --watchstreak-border: #fb923c;
+  --watchstreak-bg: #3a2311;
+  --cheer-border: #22d3ee;
+  --cheer-bg: #0e2e35;
+  --automod-border: #3b82f6;
+  --automod-bg: #16233d;
+  --kicksgifted-border: #3fbf3f;
+  --kicksgifted-bg: #163a16;
   --first-chat-fg: #6fe36f;
   --first-chat-bg: #16301a;
 }

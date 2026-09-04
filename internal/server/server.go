@@ -239,8 +239,10 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("POST /api/chat/messages", s.handleSendChatMessage)
 	s.mux.HandleFunc("DELETE /api/chat/messages", s.handleDeleteChatMessage)
+	s.mux.HandleFunc("GET /api/chat/emotes", s.handleGetTwitchEmotes)
 	s.mux.HandleFunc("POST /api/chat/bans", s.handleBanUser)
 	s.mux.HandleFunc("POST /api/chat/timeouts", s.handleTimeoutUser)
+	s.mux.HandleFunc("POST /api/chat/automod", s.handleResolveAutomodMessage)
 
 	s.mux.HandleFunc("GET /api/auth/kick/login", s.handleKickLogin)
 	s.mux.HandleFunc("GET /api/auth/kick/callback", s.handleKickCallback)
@@ -254,6 +256,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/kick/chat/stream", s.handleKickChatStream)
 	s.mux.HandleFunc("POST /api/kick/chat/messages", s.handleSendKickChatMessage)
 	s.mux.HandleFunc("DELETE /api/kick/chat/messages", s.handleDeleteKickChatMessage)
+	s.mux.HandleFunc("GET /api/kick/chat/emotes", s.handleGetKickEmotes)
 	s.mux.HandleFunc("POST /api/kick/bans", s.handleBanKickUser)
 	s.mux.HandleFunc("POST /api/kick/timeouts", s.handleTimeoutKickUser)
 	// Called by Kick's servers, not the browser — no session cookie, no

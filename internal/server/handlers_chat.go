@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -48,6 +49,25 @@ type chatMessageDTO struct {
 type chatFragmentDTO struct {
 	Text     string `json:"text"`
 	ImageURL string `json:"imageUrl,omitempty"`
+}
+
+// chatEmoteDTO is one emote available for a viewer to use in a given
+// channel, shared by both Twitch and Kick's emote-picker endpoints (see
+// twitch_emotes.go and kick_emotes.go).
+type chatEmoteDTO struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ImageURL string `json:"imageUrl"`
+	// Type groups emotes for display — Twitch's emote_type
+	// ("subscriptions", "follower", "globals", ...) or, for Kick,
+	// "channel", "global", or "emoji".
+	Type string `json:"type,omitempty"`
+	// Locked marks an emote the signed-in account most likely can't
+	// actually use. Kick's channel-emotes listing isn't scoped to the
+	// viewer the way Twitch's is, so this flags its subscribers_only
+	// emotes instead — always false for Twitch, which only ever returns
+	// emotes the account can use in the first place.
+	Locked bool `json:"locked,omitempty"`
 }
 
 // chatReplyDTO is the shared "replying to" shape sent to the browser for
@@ -142,6 +162,18 @@ type raidDTO struct {
 	ViewerCount int    `json:"viewerCount"`
 }
 
+// watchStreakDTO mirrors a Twitch watch-streak milestone (a viewer
+// having watched Streak consecutive streams) — see
+// twitch.WatchStreakEvent for why this arrives over a separate IRC
+// connection rather than the EventSub session everything else here
+// uses.
+type watchStreakDTO struct {
+	Channel     string `json:"channel"`
+	Login       string `json:"login"`
+	DisplayName string `json:"displayName"`
+	Streak      int    `json:"streak"`
+}
+
 // giftSubDTO mirrors a gift-sub event — a Twitch channel.chat.notification
 // with notice_type "sub_gift" or "community_sub_gift", or a Kick
 // channel.subscription.gifts webhook — deliberately reporting only the
@@ -150,6 +182,64 @@ type giftSubDTO struct {
 	Channel     string `json:"channel"`
 	DisplayName string `json:"displayName"`
 	Count       int    `json:"count"`
+}
+
+// subDTO mirrors a channel.chat.notification event with notice_type
+// "sub" (a brand-new subscription) or "resub" (an existing subscriber
+// renewing) — both relayed as a single "sub" SSE event so the frontend
+// shows one callout either way. Months is how long the subscriber has
+// been subscribed: 1 for a first-time sub, or the resub's all-time
+// cumulative total otherwise.
+type subDTO struct {
+	Channel      string `json:"channel"`
+	DisplayName  string `json:"displayName"`
+	Tier         string `json:"tier"`
+	Months       int    `json:"months"`
+	StreakMonths int    `json:"streakMonths,omitempty"`
+	IsResub      bool   `json:"isResub"`
+	// Message is whatever the resubscriber optionally typed alongside
+	// their resub notice; only ever populated for a resub (IsResub),
+	// never a brand-new "sub".
+	Message string `json:"message,omitempty"`
+}
+
+// cheerDTO mirrors a channel.cheer notification: a viewer cheered
+// Bits. DisplayName is a placeholder when the cheer was anonymous.
+type cheerDTO struct {
+	Channel     string `json:"channel"`
+	DisplayName string `json:"displayName"`
+	Bits        int    `json:"bits"`
+	Message     string `json:"message,omitempty"`
+}
+
+// automodHoldDTO mirrors an automod.message.hold (v2) notification: a
+// chat message AutoMod is holding for moderator review before it posts.
+// Only ever sent to a viewer who's actually a moderator/broadcaster —
+// Twitch itself only delivers these to the moderator who subscribed.
+type automodHoldDTO struct {
+	Channel     string            `json:"channel"`
+	MessageID   string            `json:"messageId"`
+	Username    string            `json:"username"`
+	DisplayName string            `json:"displayName"`
+	UserID      string            `json:"userId"`
+	Text        string            `json:"text"`
+	Fragments   []chatFragmentDTO `json:"fragments,omitempty"`
+	// Reason is "automod" or "blocked_term"; Category/Level are only
+	// meaningful for the former.
+	Reason    string `json:"reason"`
+	Category  string `json:"category,omitempty"`
+	Level     int    `json:"level,omitempty"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// automodUpdateDTO mirrors an automod.message.update (v2) notification:
+// a previously held message's status changed, so the frontend should
+// stop showing it in the queue.
+type automodUpdateDTO struct {
+	Channel   string `json:"channel"`
+	MessageID string `json:"messageId"`
+	// Status is "Approved", "Denied", or "Expired".
+	Status string `json:"status"`
 }
 
 // handleChatStream opens a Twitch EventSub WebSocket session subscribed
@@ -190,13 +280,14 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	// one after the other — each is its own network round trip, and
 	// there's no reason to pay for both in sequence.
 	var (
-		wg              sync.WaitGroup
-		broadcasterID   string
-		resolveErr      error
-		eventSubSession *twitch.Session
-		connectErr      error
+		wg                 sync.WaitGroup
+		broadcasterID      string
+		resolveErr         error
+		eventSubSession    *twitch.Session
+		connectErr         error
+		watchStreakSession *twitch.WatchStreakSession
 	)
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		broadcasterID, resolveErr = s.resolveBroadcasterID(ctx, s.cfg.TwitchClientID, sess.AccessToken, channel)
@@ -205,31 +296,57 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		eventSubSession, connectErr = twitch.Connect(ctx)
 	}()
+	go func() {
+		defer wg.Done()
+		// Watch streaks have no EventSub equivalent — see
+		// twitch.ConnectWatchStreaks — so they arrive over a second,
+		// anonymous, read-only IRC connection instead. Best-effort like
+		// the AutoMod subscription below: a failure here just means no
+		// watch-streak callouts this session, never a reason to fail
+		// chat itself.
+		var watchStreakErr error
+		watchStreakSession, watchStreakErr = twitch.ConnectWatchStreaks(ctx, channel)
+		if watchStreakErr != nil {
+			log.Printf("twitch: could not connect for watch-streak notices on #%s: %v", channel, watchStreakErr)
+		}
+	}()
 	wg.Wait()
 
 	if resolveErr != nil {
 		if eventSubSession != nil {
 			eventSubSession.Close()
 		}
+		if watchStreakSession != nil {
+			watchStreakSession.Close()
+		}
 		http.Error(w, "could not resolve channel", http.StatusBadGateway)
 		return
 	}
 	if connectErr != nil {
+		if watchStreakSession != nil {
+			watchStreakSession.Close()
+		}
 		http.Error(w, "could not connect to twitch chat", http.StatusBadGateway)
 		return
 	}
 	defer eventSubSession.Close()
+	if watchStreakSession != nil {
+		defer watchStreakSession.Close()
+	}
 
-	// Creating the chat subscriptions and fetching the channel's badge
-	// catalog are independent of each other too, so — like the pair
-	// above — they run concurrently rather than back-to-back.
+	// Creating the chat subscriptions, creating the AutoMod queue
+	// subscriptions, and fetching the channel's badge catalog are all
+	// independent of each other too, so — like the pair above — they
+	// run concurrently rather than back-to-back.
 	var (
-		wg2    sync.WaitGroup
-		subIDs []string
-		subErr error
-		badges twitchBadgeCatalog
+		wg2           sync.WaitGroup
+		subIDs        []string
+		subErr        error
+		badges        twitchBadgeCatalog
+		automodSubIDs []string
+		cheerSubIDs   []string
 	)
-	wg2.Add(2)
+	wg2.Add(4)
 	go func() {
 		defer wg2.Done()
 		subIDs, subErr = createChatEventSubSubscriptions(ctx, s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, eventSubSession.ID())
@@ -241,14 +358,45 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		// instead of blocking the chat stream over it.
 		badges, _ = s.twitchBadgeCatalogFor(ctx, s.cfg.TwitchClientID, sess.AccessToken, broadcasterID)
 	}()
+	go func() {
+		defer wg2.Done()
+		// The AutoMod queue is only available to actual moderators —
+		// Twitch rejects this subscription for anyone else — so a
+		// failure here is expected for most viewers and never treated
+		// as a reason to fail the whole chat connection. It's still
+		// logged: a moderator whose session predates the
+		// moderator:manage:automod scope (added after they last signed
+		// in) will fail here every time until they reconnect their
+		// Twitch account, and that's otherwise invisible — the AutoMod
+		// panel just never appears, with no error shown anywhere.
+		var automodErr error
+		automodSubIDs, automodErr = createAutomodEventSubSubscriptions(ctx, s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, eventSubSession.ID())
+		if automodErr != nil {
+			log.Printf("twitch: could not subscribe to AutoMod queue events for broadcaster %s (viewer %s): %v", broadcasterID, sess.UserID, automodErr)
+		}
+	}()
+	go func() {
+		defer wg2.Done()
+		// Same best-effort story as AutoMod above: Bits revenue is
+		// channel-private, so this is expected to fail for anyone but
+		// the broadcaster/moderators, and that should never take down
+		// chat itself — it just means no cheer callouts this session.
+		var cheerErr error
+		cheerSubIDs, cheerErr = createCheerEventSubSubscriptions(ctx, s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, eventSubSession.ID())
+		if cheerErr != nil {
+			log.Printf("twitch: could not subscribe to cheer events for broadcaster %s (viewer %s): %v", broadcasterID, sess.UserID, cheerErr)
+		}
+	}()
 	wg2.Wait()
+	allSubIDs := append(subIDs, automodSubIDs...)
+	allSubIDs = append(allSubIDs, cheerSubIDs...)
 
 	defer func() {
 		// Best-effort: the request context is already done by the time
 		// this runs, so cleanup gets its own short-lived one instead.
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		for _, id := range subIDs {
+		for _, id := range allSubIDs {
 			_ = deleteEventSubSubscription(cleanupCtx, s.cfg.TwitchClientID, sess.AccessToken, id)
 		}
 	}()
@@ -274,10 +422,30 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	keepalive := time.NewTicker(30 * time.Second)
 	defer keepalive.Stop()
 
+	// nil when the watch-streak connection never came up (or has since
+	// ended) — a nil channel's case in the select below simply never
+	// fires, so regular chat is unaffected either way.
+	var watchStreakEvents <-chan twitch.WatchStreakEvent
+	if watchStreakSession != nil {
+		watchStreakEvents = watchStreakSession.Events()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case ev, ok := <-watchStreakEvents:
+			if !ok {
+				watchStreakEvents = nil
+				continue
+			}
+			writeSSE(w, "watchstreak", watchStreakDTO{
+				Channel:     channel,
+				Login:       ev.Login,
+				DisplayName: ev.DisplayName,
+				Streak:      ev.Streak,
+			})
+			flusher.Flush()
 		case n, ok := <-eventSubSession.Notifications():
 			if !ok {
 				// The EventSub session ended (Twitch closed it, or a
@@ -396,7 +564,75 @@ func writeTwitchNotification(w http.ResponseWriter, channel string, n twitch.Not
 				DisplayName: twitchNotificationGifterName(note),
 				Count:       1,
 			})
+
+		case note.NoticeType == "sub" && note.Sub != nil:
+			writeSSE(w, "sub", subDTO{
+				Channel:     channel,
+				DisplayName: note.ChatterUserName,
+				Tier:        twitchSubTierLabel(note.Sub.SubTier, note.Sub.IsPrime),
+				Months:      1,
+			})
+
+		case note.NoticeType == "resub" && note.Resub != nil:
+			writeSSE(w, "sub", subDTO{
+				Channel:      channel,
+				DisplayName:  note.ChatterUserName,
+				Tier:         twitchSubTierLabel(note.Resub.SubTier, note.Resub.IsPrime),
+				Months:       note.Resub.CumulativeMonths,
+				StreakMonths: note.Resub.StreakMonths,
+				IsResub:      true,
+				Message:      note.Message.Text,
+			})
 		}
+
+	case "channel.cheer":
+		var c twitch.Cheer
+		if err := json.Unmarshal(n.Event, &c); err != nil {
+			return nil
+		}
+		name := c.UserName
+		if c.IsAnonymous || name == "" {
+			name = "An anonymous cheerer"
+		}
+		writeSSE(w, "cheer", cheerDTO{
+			Channel:     channel,
+			DisplayName: name,
+			Bits:        c.Bits,
+			Message:     c.Message,
+		})
+
+	case "automod.message.hold":
+		var hold twitch.AutomodMessageHold
+		if err := json.Unmarshal(n.Event, &hold); err != nil {
+			return nil
+		}
+		dto := automodHoldDTO{
+			Channel:     channel,
+			MessageID:   hold.MessageID,
+			Username:    hold.UserLogin,
+			DisplayName: hold.UserName,
+			UserID:      hold.UserID,
+			Text:        hold.Message.Text,
+			Fragments:   twitchFragmentDTOs(hold.Message.Fragments),
+			Reason:      hold.Reason,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		if hold.Automod != nil {
+			dto.Category = hold.Automod.Category
+			dto.Level = hold.Automod.Level
+		}
+		writeSSE(w, "automodhold", dto)
+
+	case "automod.message.update":
+		var upd twitch.AutomodMessageUpdate
+		if err := json.Unmarshal(n.Event, &upd); err != nil {
+			return nil
+		}
+		writeSSE(w, "automodupdate", automodUpdateDTO{
+			Channel:   channel,
+			MessageID: upd.MessageID,
+			Status:    upd.Status,
+		})
 	}
 	return nil
 }
@@ -408,6 +644,24 @@ func twitchNotificationGifterName(note twitch.ChatNotification) string {
 		return "An anonymous gifter"
 	}
 	return note.ChatterUserName
+}
+
+// twitchSubTierLabel renders a sub/resub notification's raw sub_tier
+// ("1000", "2000", "3000") as the label Twitch shows in its own UI. A
+// Prime-linked sub always carries sub_tier "1000" underneath, so isPrime
+// is checked first.
+func twitchSubTierLabel(subTier string, isPrime bool) string {
+	if isPrime {
+		return "Prime"
+	}
+	switch subTier {
+	case "2000":
+		return "Tier 2"
+	case "3000":
+		return "Tier 3"
+	default:
+		return "Tier 1"
+	}
 }
 
 func writeSSE(w http.ResponseWriter, event string, payload any) {

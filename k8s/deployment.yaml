@@ -1,0 +1,160 @@
+# Example Kubernetes manifests for multi-stream-moderation.
+#
+# The server persists AES-256-GCM-encrypted OAuth session stores under
+# /data (see internal/server/auth.go and the Dockerfile's VOLUME ["/data"]),
+# so it's deployed as a single-replica StatefulSet with a per-pod
+# PersistentVolumeClaim rather than a Deployment — sessions live on local
+# disk, not in any shared/replicated store, so replicas don't scale
+# horizontally and each pod's data must follow that pod across restarts.
+#
+# Usage:
+#   1. Fill in the Secret below with real OAuth credentials (or better,
+#      generate it out-of-band and never commit real values):
+#        kubectl create secret generic multi-stream-moderation-secrets \
+#          --from-literal=SESSION_ENCRYPTION_KEY=$(openssl rand -base64 32) \
+#          --from-literal=TWITCH_CLIENT_ID=... \
+#          --from-literal=TWITCH_CLIENT_SECRET=... \
+#          --from-literal=KICK_CLIENT_ID=... \
+#          --from-literal=KICK_CLIENT_SECRET=... \
+#          --from-literal=YOUTUBE_CLIENT_ID=... \
+#          --from-literal=YOUTUBE_CLIENT_SECRET=...
+#   2. Update the ConfigMap's *_REDIRECT_URL / ALLOWED_ORIGIN values to
+#      match wherever you expose the Service (Ingress host, etc).
+#   3. Update `image:` to your pushed tag (see `make docker-push`).
+#   4. kubectl apply -f k8s/deployment.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-stream-moderation-config
+  labels:
+    app: multi-stream-moderation
+data:
+  PORT: "8080"
+  # Baked into the image already, set explicitly here for clarity.
+  UI_DIST_DIR: /app/web/dist
+  SESSION_STORE_FILE: /data/sessions.enc
+  KICK_SESSION_STORE_FILE: /data/kick-sessions.enc
+  YOUTUBE_SESSION_STORE_FILE: /data/youtube-sessions.enc
+  # Terminate TLS in front of this Service (ingress/load balancer) and
+  # keep this true; only set to "false" for plain-HTTP dev/test clusters.
+  COOKIE_SECURE: "true"
+  # Origin the UI is served from, and the OAuth callback URLs Twitch/
+  # Kick/YouTube must have registered. Replace with your real hostname.
+  ALLOWED_ORIGIN: "https://moderation.danotchuuy.com"
+  TWITCH_REDIRECT_URL: "https://moderation.danotchuuy.com/api/auth/twitch/callback"
+  KICK_REDIRECT_URL: "https://moderation.danotchuuy.com/api/auth/kick/callback"
+  YOUTUBE_REDIRECT_URL: "https://moderation.danotchuuy.com/api/auth/youtube/callback"
+
+---
+# Headless (clusterIP: None): required so the StatefulSet can give its
+# pod a stable DNS identity, and sufficient here since there's only ever
+# one replica — no load-balancing behavior would be gained from a normal
+# ClusterIP Service. Put an Ingress or LoadBalancer Service in front of
+# this for external access.
+apiVersion: v1
+kind: Service
+metadata:
+  name: multi-stream-moderation
+  labels:
+    app: multi-stream-moderation
+spec:
+  type: ClusterIP
+  selector:
+    app: multi-stream-moderation
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: multi-stream-moderation
+  labels:
+    app: multi-stream-moderation
+spec:
+  serviceName: multi-stream-moderation
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multi-stream-moderation
+  template:
+    metadata:
+      labels:
+        app: multi-stream-moderation
+    spec:
+      # Matches the distroless nonroot runtime image (USER nonroot:nonroot,
+      # uid/gid 65532) — see the Dockerfile's runtime stage.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: server
+          image: danotchuuy/multi-stream-moderation:2026.09.03-0457
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: multi-stream-moderation-config
+            - secretRef:
+                name: multi-stream-moderation-secrets
+          volumeMounts:
+            - name: multi-stream-moderation-data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: multi-stream-moderation-data
+      spec:
+        storageClassName: freenas-iscsi-ssd
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-stream-moderation
+  annotations:
+    kubernetes.io/ingress.class: "cloudflare-tunnel"
+spec:
+  rules:
+    - host: moderation.danotchuuy.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: multi-stream-moderation
+                port:
+                  number: 8080

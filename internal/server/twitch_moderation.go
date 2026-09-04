@@ -146,3 +146,29 @@ func banOrTimeoutUser(ctx context.Context, clientID, accessToken, broadcasterID,
 	endpoint := twitchAPIBase + "/moderation/bans?" + params.Encode()
 	return twitchAPIRequest(ctx, http.MethodPost, endpoint, clientID, accessToken, body, nil)
 }
+
+// automodResolveRequest is the Manage Held AutoMod Messages request
+// body. UserID is the moderator taking the action — Twitch requires it
+// to match the token's own user ID — not the held message's sender.
+type automodResolveRequest struct {
+	UserID string `json:"user_id"`
+	MsgID  string `json:"msg_id"`
+	Action string `json:"action"`
+}
+
+// resolveAutomodMessage approves or denies a message AutoMod is holding
+// for review, as moderatorID (the authenticated caller — Twitch has no
+// concept of a separate "broadcaster" party for this call, unlike
+// delete/ban above). action must be "ALLOW" or "DENY".
+// https://dev.twitch.tv/docs/api/reference/#manage-held-automod-messages
+func resolveAutomodMessage(ctx context.Context, clientID, accessToken, moderatorID, messageID, action string) error {
+	body, err := json.Marshal(automodResolveRequest{
+		UserID: moderatorID,
+		MsgID:  messageID,
+		Action: action,
+	})
+	if err != nil {
+		return err
+	}
+	return twitchAPIRequest(ctx, http.MethodPost, twitchAPIBase+"/moderation/automod/message", clientID, accessToken, body, nil)
+}

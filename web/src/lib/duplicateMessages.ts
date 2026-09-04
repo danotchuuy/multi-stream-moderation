@@ -31,6 +31,19 @@ function normalizeForComparison(text: string): string {
     .toLowerCase();
 }
 
+// Kick embeds emotes as inline "[emote:id:name]" tokens right in a
+// message's raw text (see kickMessageFragments in
+// internal/server/handlers_kick.go) rather than pre-segmenting it the
+// way Twitch's EventSub does. A message that's nothing but one such
+// token — e.g. "[emote:37226:KEKW]" — is everyone reacting with the
+// same emote, not raid copypasta, so it's excluded from duplicate
+// grouping the same way an empty message already is.
+const SINGLE_EMOTE_MESSAGE_PATTERN = /^\[emote:\d+:[^\]]*\]$/;
+
+function isSingleEmoteMessage(text: string): boolean {
+  return SINGLE_EMOTE_MESSAGE_PATTERN.test(text.trim());
+}
+
 export type DuplicateSourceMessage<U> = {
   id: string;
   text: string;
@@ -77,6 +90,7 @@ export function groupDuplicateMessages<U, T extends DuplicateSourceMessage<U>>(
     if (m.deleted || m.system) continue;
     if (m.timestamp < cutoff) continue;
     if (!isEligible(m)) continue;
+    if (isSingleEmoteMessage(m.text)) continue;
 
     const key = normalizeForComparison(m.text);
     if (!key) continue;

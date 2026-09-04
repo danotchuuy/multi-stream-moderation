@@ -1,5 +1,5 @@
 import type { ChatBadge } from "./badges";
-import type { ChatFragment, ChatReply } from "./chatDecorations";
+import type { ChatEmote, ChatFragment, ChatReply } from "./chatDecorations";
 
 export type TwitchUser = {
   login: string;
@@ -96,6 +96,18 @@ export async function sendChatMessage(
   }
 }
 
+/** Every emote the signed-in viewer can use while chatting in channel —
+ * their global/follower/subscriber emotes, plus that channel's own
+ * follower emotes if they qualify — for the composer's emote picker. */
+export async function fetchChatEmotes(channel: string): Promise<ChatEmote[]> {
+  const params = new URLSearchParams({ channel });
+  const res = await fetch(`/api/chat/emotes?${params}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `failed to load emotes: ${res.status}`));
+  }
+  return (await res.json()) ?? [];
+}
+
 export async function deleteChatMessage(
   channel: string,
   messageId: string,
@@ -184,5 +196,22 @@ export async function timeoutChatter(
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `timeout failed: ${res.status}`));
+  }
+}
+
+/** Approves or denies a message AutoMod is holding for review. Needs no
+ * channel — Twitch resolves the held message purely from its own ID
+ * plus the signed-in moderator's. */
+export async function resolveAutomodMessage(
+  messageId: string,
+  action: "allow" | "deny",
+): Promise<void> {
+  const res = await fetch("/api/chat/automod", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId, action }),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `automod action failed: ${res.status}`));
   }
 }

@@ -21,13 +21,18 @@ import (
 )
 
 // kickEventMessageSent / kickEventModerationBans / kickEventSubscriptionGifts
-// are the webhook event types this app subscribes to.
+// / kickEventKicksGifted are the webhook event types this app subscribes
+// to.
 // https://docs.kick.com/events/event-types
 const (
 	kickEventMessageSent       = "chat.message.sent"
 	kickEventModerationBans    = "moderation.banned"
 	kickEventSubscriptionGifts = "channel.subscription.gifts"
-	kickEventVersion           = 1
+	// kickEventKicksGifted fires when a viewer spends Kicks (Kick's
+	// virtual currency) in the channel — the Kick equivalent of a
+	// Twitch Cheer/Bits.
+	kickEventKicksGifted = "kicks.gifted"
+	kickEventVersion     = 1
 )
 
 // --- Signature verification ---------------------------------------------
@@ -453,13 +458,34 @@ type kickSubscriptionGiftsEvent struct {
 	} `json:"giftees"`
 }
 
-// kickStreamEvent tags which of the three payloads a fan-out subscriber
+// kickKicksGiftedEvent is the kicks.gifted webhook payload: a viewer
+// spent Kicks (Kick's virtual currency) in the channel, similar to a
+// Twitch Cheer/Bits. Unlike gift subs, Kick documents the sender as
+// never anonymous for this event.
+// https://docs.kick.com/events/event-types
+type kickKicksGiftedEvent struct {
+	Broadcaster struct {
+		UserID int64 `json:"user_id"`
+	} `json:"broadcaster"`
+	Sender struct {
+		Username string `json:"username"`
+	} `json:"sender"`
+	Gift struct {
+		Amount int    `json:"amount"`
+		Name   string `json:"name"`
+		// Message is the optional note the sender attached to the gift.
+		Message string `json:"message"`
+	} `json:"gift"`
+}
+
+// kickStreamEvent tags which of the four payloads a fan-out subscriber
 // received, mirroring streamEvent in handlers_chat.go.
 type kickStreamEvent struct {
-	kind     string // "message", "banned", or "giftsub"
-	message  kickChatMessageEvent
-	banned   kickModerationBannedEvent
-	giftSubs kickSubscriptionGiftsEvent
+	kind        string // "message", "banned", "giftsub", or "kicksgifted"
+	message     kickChatMessageEvent
+	banned      kickModerationBannedEvent
+	giftSubs    kickSubscriptionGiftsEvent
+	kicksGifted kickKicksGiftedEvent
 }
 
 // kickHub fans webhook deliveries for a broadcaster out to every browser
@@ -572,6 +598,11 @@ func (s *Server) handleKickWebhook(w http.ResponseWriter, r *http.Request) {
 		var gift kickSubscriptionGiftsEvent
 		if err := json.Unmarshal(body, &gift); err == nil {
 			s.kickHub.publish(gift.Broadcaster.UserID, kickStreamEvent{kind: "giftsub", giftSubs: gift})
+		}
+	case kickEventKicksGifted:
+		var kicks kickKicksGiftedEvent
+		if err := json.Unmarshal(body, &kicks); err == nil {
+			s.kickHub.publish(kicks.Broadcaster.UserID, kickStreamEvent{kind: "kicksgifted", kicksGifted: kicks})
 		}
 	}
 

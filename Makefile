@@ -43,14 +43,14 @@ test:
 #
 # Every build/push applies two tags in one invocation (buildx builds
 # once, tags twice — it doesn't rebuild per tag): the moving DOCKER_TAG
-# (default "latest") and an immutable, date-coded DOCKER_DATE_TAG, so you
-# can always pin to a specific day's build even after "latest" moves on.
-# Override DOCKER_DATE_TAG directly if you need a second same-day build
-# to get its own tag, e.g. DOCKER_DATE_TAG=$(DOCKER_DATE_TAG)-2.
+# (default "latest") and an immutable, timestamped DOCKER_DATE_TAG (down
+# to the minute, UTC), so you can always pin to a specific build even
+# after "latest" moves on and multiple same-day builds each get their own
+# tag without needing a manual override.
 
-DOCKER_IMAGE     ?= changeme/multi-stream-moderation
+DOCKER_IMAGE     ?= danotchuuy/multi-stream-moderation
 DOCKER_TAG       ?= latest
-DOCKER_DATE_TAG  ?= $(shell date -u +%Y.%m.%d)
+DOCKER_DATE_TAG  ?= $(shell date -u +%Y.%m.%d-%H%M)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILDER   ?= multi-stream-moderation-builder
 

@@ -19,3 +19,20 @@ export type ChatFragment = {
   text: string;
   imageUrl?: string;
 };
+
+/** One emote a viewer can pick from the chat composer's emote picker
+ * (see chatEmoteDTO in internal/server/handlers_chat.go) — shared by
+ * both Twitch and Kick's emote-list endpoints. */
+export type ChatEmote = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  /** Groups emotes for display — Twitch's emote_type ("subscriptions",
+   * "follower", "globals", ...) or Kick's "channel"/"global"/"emoji". */
+  type?: string;
+  /** Set for a Kick emote whose subscribers_only flag suggests the
+   * signed-in account may not actually be able to use it — Kick's
+   * emote listing isn't scoped to the viewer the way Twitch's is.
+   * Always false for Twitch. */
+  locked?: boolean;
+};

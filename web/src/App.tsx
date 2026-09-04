@@ -19,6 +19,7 @@ import {
   type YouTubeUser,
 } from "./lib/youtubeApi";
 import { PlatformSection } from "./components/PlatformSection";
+import { NotificationsPanel } from "./components/NotificationsPanel";
 import { ConnectTwitch } from "./components/ConnectTwitch";
 import { ChannelPicker } from "./components/ChannelPicker";
 import { ChatPanel } from "./components/ChatPanel";
@@ -221,6 +222,8 @@ function App() {
       </div>
 
       <div className="panels">
+        <NotificationsPanel />
+
         <PlatformSection label="Twitch">
           {loading && <p>Loading...</p>}
           {!loading && !user && <ConnectTwitch error={authError} />}

@@ -91,6 +91,19 @@ type ClearUserMessages struct {
 	TargetUserName  string `json:"target_user_name"`
 }
 
+// Cheer is a channel.cheer notification's event payload: a viewer
+// cheered Bits. UserID/UserLogin/UserName are all empty when
+// IsAnonymous is set — the cheerer chose not to be identified.
+// https://dev.twitch.tv/docs/eventsub/eventsub-reference/#cheer-event
+type Cheer struct {
+	IsAnonymous bool   `json:"is_anonymous"`
+	UserID      string `json:"user_id"`
+	UserLogin   string `json:"user_login"`
+	UserName    string `json:"user_name"`
+	Message     string `json:"message"`
+	Bits        int    `json:"bits"`
+}
+
 // ChatNotification is a channel.chat.notification notification's event
 // payload — Twitch's catch-all for chat-room announcements (raids, subs,
 // gifts, ...). Only the fields this app currently uses (raids and gift
@@ -104,7 +117,14 @@ type ChatNotification struct {
 	// named and ChatterUserName is empty.
 	ChatterUserName    string `json:"chatter_user_name"`
 	ChatterIsAnonymous bool   `json:"chatter_is_anonymous"`
-	Raid               *struct {
+	// Message is whatever the chatter optionally typed alongside the
+	// notification itself — e.g. a resub's "thanks for 12 months!" note.
+	// Text is empty when nothing was attached.
+	Message struct {
+		Text      string     `json:"text"`
+		Fragments []Fragment `json:"fragments"`
+	} `json:"message"`
+	Raid *struct {
 		UserID      string `json:"user_id"`
 		UserLogin   string `json:"user_login"`
 		UserName    string `json:"user_name"`
@@ -124,4 +144,56 @@ type ChatNotification struct {
 	CommunitySubGift *struct {
 		Total int `json:"total"`
 	} `json:"community_sub_gift"`
+	// Sub is set for notice_type "sub": a brand-new subscription (this
+	// chatter's first month).
+	Sub *struct {
+		SubTier string `json:"sub_tier"`
+		IsPrime bool   `json:"is_prime"`
+	} `json:"sub"`
+	// Resub is set for notice_type "resub": an existing subscriber
+	// renewing. CumulativeMonths is the all-time total months
+	// subscribed (independent of any lapses) — the "how long they've
+	// been subscribed" figure; StreakMonths is the current run of
+	// consecutive months, 0 if the subscriber chose not to share it.
+	Resub *struct {
+		CumulativeMonths int    `json:"cumulative_months"`
+		StreakMonths     int    `json:"streak_months"`
+		SubTier          string `json:"sub_tier"`
+		IsPrime          bool   `json:"is_prime"`
+	} `json:"resub"`
+}
+
+// AutomodMessageHold is an automod.message.hold (v2) notification's
+// event payload: a chat message AutoMod is holding for moderator review
+// before it posts.
+// https://dev.twitch.tv/docs/eventsub/eventsub-reference/#automod-message-hold-v2-event
+type AutomodMessageHold struct {
+	MessageID string `json:"message_id"`
+	UserID    string `json:"user_id"`
+	UserLogin string `json:"user_login"`
+	UserName  string `json:"user_name"`
+	Message   struct {
+		Text      string     `json:"text"`
+		Fragments []Fragment `json:"fragments"`
+	} `json:"message"`
+	// Reason is "automod" (caught by AutoMod's own filters) or
+	// "blocked_term" (a channel-configured blocked term); Automod is
+	// only populated for the former.
+	Reason  string `json:"reason"`
+	Automod *struct {
+		Category string `json:"category"`
+		Level    int    `json:"level"`
+	} `json:"automod"`
+	HeldAt string `json:"held_at"`
+}
+
+// AutomodMessageUpdate is an automod.message.update (v2) notification's
+// event payload: a previously held message's status changed — approved
+// or denied by ModeratorUserName, or expired unactioned.
+// https://dev.twitch.tv/docs/eventsub/eventsub-reference/#automod-message-update-v2-event
+type AutomodMessageUpdate struct {
+	MessageID string `json:"message_id"`
+	// Status is "Approved", "Denied", or "Expired".
+	Status            string `json:"status"`
+	ModeratorUserName string `json:"moderator_user_name"`
 }

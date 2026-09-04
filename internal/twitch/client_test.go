@@ -82,6 +82,37 @@ func TestChatNotificationRaidUnmarshal(t *testing.T) {
 	}
 }
 
+func TestCheerUnmarshal(t *testing.T) {
+	raw := `{
+		"is_anonymous": false,
+		"user_id": "123",
+		"user_login": "cheerer",
+		"user_name": "Cheerer",
+		"message": "cheer100 nice stream",
+		"bits": 100
+	}`
+
+	var c Cheer
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if c.UserLogin != "cheerer" || c.Bits != 100 || c.IsAnonymous {
+		t.Errorf("Cheer = %+v", c)
+	}
+}
+
+func TestCheerUnmarshalAnonymous(t *testing.T) {
+	raw := `{"is_anonymous": true, "user_id": null, "user_login": null, "user_name": null, "message": "", "bits": 50}`
+
+	var c Cheer
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if !c.IsAnonymous || c.UserLogin != "" || c.Bits != 50 {
+		t.Errorf("Cheer = %+v", c)
+	}
+}
+
 // wsTestServer upgrades every request to a WebSocket and hands the
 // connection to onConn in its own goroutine.
 func wsTestServer(t *testing.T, onConn func(*websocket.Conn)) *httptest.Server {

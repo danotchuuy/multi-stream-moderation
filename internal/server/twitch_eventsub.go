@@ -25,6 +25,30 @@ var twitchChatEventSubTypes = []string{
 	"channel.chat.notification",
 }
 
+// twitchAutomodEventSubTypes are the AutoMod queue subscription types —
+// kept separate from twitchChatEventSubTypes above because they need a
+// different condition shape (moderator_user_id instead of user_id) and
+// a different version, and only succeed when the signed-in viewer is
+// actually a moderator (or the broadcaster) of the channel; Twitch
+// itself enforces that when the subscription is created, so there's
+// nothing for this app to check beforehand.
+// https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/
+var twitchAutomodEventSubTypes = []string{
+	"automod.message.hold",
+	"automod.message.update",
+}
+
+const twitchAutomodEventSubVersion = "2"
+
+// twitchCheerEventSubTypes is the Bits/Cheer subscription type — kept
+// separate from twitchChatEventSubTypes because its condition only
+// takes broadcaster_user_id (no user_id), and it needs the bits:read
+// scope instead of user:read:chat.
+// https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#cheer
+var twitchCheerEventSubTypes = []string{
+	"channel.cheer",
+}
+
 type createEventSubSubscriptionRequest struct {
 	Type      string            `json:"type"`
 	Version   string            `json:"version"`
@@ -38,27 +62,57 @@ type createEventSubSubscriptionRequest struct {
 // createChatEventSubSubscriptions subscribes sessionID (an already-open
 // EventSub WebSocket session, see internal/twitch.Connect) to every
 // event type in twitchChatEventSubTypes for broadcasterID, read as
-// userID (the signed-in viewer). The five subscriptions are independent
-// Helix calls, so they're created concurrently rather than one at a
-// time — otherwise their round trips simply add up, and Twitch requires
-// the session's first subscription within 10 seconds of it opening. It
-// returns whichever subscription IDs were successfully created, even if
-// others failed, so the caller can still clean those up.
+// userID (the signed-in viewer). All five need only the user:read:chat
+// scope and work for any channel the signed-in user wants to watch, not
+// just ones they moderate.
 func createChatEventSubSubscriptions(ctx context.Context, clientID, accessToken, broadcasterID, userID, sessionID string) ([]string, error) {
 	condition := map[string]string{"broadcaster_user_id": broadcasterID, "user_id": userID}
+	return createEventSubSubscriptions(ctx, clientID, accessToken, sessionID, "1", condition, twitchChatEventSubTypes)
+}
 
+// createAutomodEventSubSubscriptions subscribes sessionID to the
+// AutoMod queue events (twitchAutomodEventSubTypes) for broadcasterID,
+// moderated as moderatorUserID (the signed-in viewer). Expected to fail
+// for anyone who isn't actually a moderator or the broadcaster — Twitch
+// requires moderator:manage:automod for the specified broadcaster — so
+// callers should treat a failure here as "no AutoMod queue for this
+// viewer", not a reason to give up on chat entirely.
+func createAutomodEventSubSubscriptions(ctx context.Context, clientID, accessToken, broadcasterID, moderatorUserID, sessionID string) ([]string, error) {
+	condition := map[string]string{"broadcaster_user_id": broadcasterID, "moderator_user_id": moderatorUserID}
+	return createEventSubSubscriptions(ctx, clientID, accessToken, sessionID, twitchAutomodEventSubVersion, condition, twitchAutomodEventSubTypes)
+}
+
+// createCheerEventSubSubscriptions subscribes sessionID to Bits cheer
+// notifications (twitchCheerEventSubTypes) for broadcasterID. Expected
+// to fail for anyone who isn't actually the broadcaster or a moderator
+// there — see the bits:read scope's comment in twitch_oauth.go — so
+// callers should treat a failure here as "no cheer callouts for this
+// viewer", not a reason to give up on chat entirely.
+func createCheerEventSubSubscriptions(ctx context.Context, clientID, accessToken, broadcasterID, sessionID string) ([]string, error) {
+	condition := map[string]string{"broadcaster_user_id": broadcasterID}
+	return createEventSubSubscriptions(ctx, clientID, accessToken, sessionID, "1", condition, twitchCheerEventSubTypes)
+}
+
+// createEventSubSubscriptions creates sessionID's subscriptions for
+// every type in subTypes, all sharing condition and version. The
+// requests run concurrently rather than one at a time — otherwise their
+// round trips simply add up, and Twitch requires the session's first
+// subscription within 10 seconds of it opening. Returns whichever
+// subscription IDs were successfully created, even if others failed, so
+// the caller can still clean those up.
+func createEventSubSubscriptions(ctx context.Context, clientID, accessToken, sessionID, version string, condition map[string]string, subTypes []string) ([]string, error) {
 	type result struct {
 		id  string
 		err error
 	}
-	results := make([]result, len(twitchChatEventSubTypes))
+	results := make([]result, len(subTypes))
 
 	var wg sync.WaitGroup
-	for i, subType := range twitchChatEventSubTypes {
+	for i, subType := range subTypes {
 		wg.Add(1)
 		go func(i int, subType string) {
 			defer wg.Done()
-			id, err := createEventSubSubscription(ctx, clientID, accessToken, subType, "1", condition, sessionID)
+			id, err := createEventSubSubscription(ctx, clientID, accessToken, subType, version, condition, sessionID)
 			results[i] = result{id: id, err: err}
 		}(i, subType)
 	}
@@ -69,7 +123,7 @@ func createChatEventSubSubscriptions(ctx context.Context, clientID, accessToken,
 	for i, r := range results {
 		if r.err != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("subscribing to %s: %w", twitchChatEventSubTypes[i], r.err)
+				firstErr = fmt.Errorf("subscribing to %s: %w", subTypes[i], r.err)
 			}
 			continue
 		}

@@ -27,7 +27,7 @@ RUN npm run build
 # platform would only make the build slower, not more correct.
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS go-builder
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 

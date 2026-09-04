@@ -59,9 +59,32 @@
   text-align: left;
 }
 
+/* Sized so all three chat panels fit on one row alongside
+   notifications-panel within .app's 1600px max-width: 3 * 340px + 260px
+   + 3 gaps of 1.5rem (72px) = ~1352px, comfortably under the ~1552px
+   available (1600px minus .app's own left/right padding). */
 .platform-panel {
-  flex: 1 1 420px;
+  flex: 1 1 340px;
   min-width: 0;
+}
+
+/* Narrower than a full chat panel — it only ever holds short notice
+   lines, never a message composer — and ordered first by source order
+   in App.tsx so it lands on the far left. */
+.notifications-panel {
+  flex: 1 1 260px;
+  max-width: 300px;
+}
+
+/* A minimized panel shows only its header — shrink it to that header's
+   own content width (rather than keeping its usual flex-basis) so the
+   space it would otherwise hold open gets redistributed to the other,
+   still-expanded panels on the same row via their flex-grow. Placed
+   after .platform-panel/.notifications-panel so it wins the (equal
+   specificity) cascade regardless of which of those a given panel also
+   carries. */
+.platform-panel-minimized {
+  flex: 0 0 auto;
 }
 
 .platform-panel-header {
@@ -341,6 +364,38 @@
   font-style: normal;
 }
 
+.chat-log li.chat-sub {
+  background: var(--sub-bg);
+  border: 1px solid var(--sub-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-watchstreak {
+  background: var(--watchstreak-bg);
+  border: 1px solid var(--watchstreak-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-cheer {
+  background: var(--cheer-bg);
+  border: 1px solid var(--cheer-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-kicksgifted {
+  background: var(--kicksgifted-bg);
+  border: 1px solid var(--kicksgifted-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
 .chat-reply-context {
   /* Forces its own line at the top of the (flex-wrap) message row,
      rather than sitting inline before the badges/username/text. */
@@ -474,12 +529,28 @@
 
 .chat-composer-input {
   flex: 1;
+  min-width: 0;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--input-border);
   border-radius: 6px;
   font-size: 1rem;
   background: var(--control-bg);
   color: var(--control-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 4.5em;
+}
+
+.chat-composer-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint-fg);
+  pointer-events: none;
+}
+
+.composer-emote {
+  height: 1.3em;
 }
 
 .chat-composer-send {
@@ -490,6 +561,112 @@
 .chat-composer-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.emote-picker {
+  position: relative;
+}
+
+.emote-picker-toggle {
+  padding: 0.5rem 0.6rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  cursor: pointer;
+}
+
+.emote-picker-toggle:hover {
+  background: var(--border-soft);
+}
+
+.emote-picker-panel {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  right: 0;
+  width: 300px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--control-bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.emote-picker-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--control-fg);
+}
+
+.emote-picker-status {
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  text-align: center;
+}
+
+.emote-picker-error {
+  color: var(--danger, #d9534f);
+}
+
+.emote-picker-category + .emote-picker-category {
+  margin-top: 0.6rem;
+}
+
+.emote-picker-category-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.emote-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25rem;
+}
+
+.emote-picker-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.emote-picker-item:hover {
+  background: var(--border-soft);
+}
+
+.emote-picker-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.emote-picker-lock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 0.6rem;
+  line-height: 1;
 }
 
 .channel-info-toggle {
@@ -628,6 +805,45 @@
   padding: 0.1rem 0.55rem;
 }
 
+.automod-panel {
+  margin-top: 1rem;
+  border-color: var(--automod-border);
+  background: var(--automod-bg);
+}
+
+.automod-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.automod-item {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  background: var(--card-bg);
+}
+
+.automod-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.automod-reason {
+  font-size: 0.75rem;
+  color: var(--muted-fg);
+}
+
+.automod-item-text {
+  word-break: break-word;
+  margin-bottom: 0.5rem;
+}
+
 .platform-badge {
   display: inline-block;
   font-size: 0.7rem;
@@ -644,6 +860,14 @@
 .kick-badge {
   background: #53fc18;
   color: #0a0a0a;
+}
+
+/* Twitch's own brand purple — used in the combined notifications panel
+   to tell a Twitch notice from a Kick one at a glance, the same way
+   kick-badge already does for Kick's own chat header. */
+.twitch-badge {
+  background: #9146ff;
+  color: #fff;
 }
 
 .kick-panel .button,

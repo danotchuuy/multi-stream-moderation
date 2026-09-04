@@ -114,3 +114,34 @@ func TestWriteKickStreamEventGiftSubAnonymous(t *testing.T) {
 		t.Errorf("dto.DisplayName = %q, want an anonymous placeholder", dto.DisplayName)
 	}
 }
+
+func TestWriteKickStreamEventKicksGifted(t *testing.T) {
+	ev := kickStreamEvent{
+		kind: "kicksgifted",
+		kicksGifted: kickKicksGiftedEvent{
+			Sender: struct {
+				Username string `json:"username"`
+			}{Username: "BigSpender"},
+			Gift: struct {
+				Amount  int    `json:"amount"`
+				Name    string `json:"name"`
+				Message string `json:"message"`
+			}{Amount: 500, Name: "Rage Quit", Message: "w"},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	writeKickStreamEvent(rec, "achannel", ev)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "kicksgifted" {
+		t.Fatalf("events = %+v, want one \"kicksgifted\" event", events)
+	}
+	var dto kicksGiftedDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.DisplayName != "BigSpender" || dto.Amount != 500 || dto.GiftName != "Rage Quit" || dto.Message != "w" {
+		t.Errorf("dto = %+v", dto)
+	}
+}

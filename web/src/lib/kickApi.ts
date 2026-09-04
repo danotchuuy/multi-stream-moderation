@@ -1,5 +1,5 @@
 import type { ChatBadge } from "./badges";
-import type { ChatFragment, ChatReply } from "./chatDecorations";
+import type { ChatEmote, ChatFragment, ChatReply } from "./chatDecorations";
 
 export type KickUser = {
   username: string;
@@ -82,6 +82,18 @@ export async function sendKickChatMessage(
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));
   }
+}
+
+/** The channel's own emotes plus Kick's global and "Kick Emoji" sets,
+ * for the composer's emote picker. Not scoped to the signed-in viewer
+ * the way Twitch's equivalent is — see ChatEmote.locked. */
+export async function fetchKickChatEmotes(channel: string): Promise<ChatEmote[]> {
+  const params = new URLSearchParams({ channel });
+  const res = await fetch(`/api/kick/chat/emotes?${params}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `failed to load emotes: ${res.status}`));
+  }
+  return (await res.json()) ?? [];
 }
 
 export async function deleteKickChatMessage(messageId: string): Promise<void> {

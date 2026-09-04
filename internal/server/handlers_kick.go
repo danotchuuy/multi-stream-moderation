@@ -415,6 +415,17 @@ type kickBannedDTO struct {
 	DurationMinutes int    `json:"durationMinutes,omitempty"`
 }
 
+// kicksGiftedDTO mirrors a kicks.gifted webhook: a viewer spent Kicks
+// (Kick's virtual currency) in the channel — Kick's equivalent of a
+// Twitch Cheer/Bits.
+type kicksGiftedDTO struct {
+	Channel     string `json:"channel"`
+	DisplayName string `json:"displayName"`
+	Amount      int    `json:"amount"`
+	GiftName    string `json:"giftName,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
 // handleKickChatStream streams a channel's chat to the browser over SSE.
 // Unlike the Twitch equivalent, this requires the viewer to be signed
 // in — Kick's public API has no anonymous way to read chat, only
@@ -503,17 +514,18 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 
 // ensureKickSubscriptions makes sure the app is subscribed to the
 // webhook events it cares about for broadcasterID. Only
-// chat.message.sent is treated as essential here — moderation.banned
-// and channel.subscription.gifts add ban/timeout and gift-sub notices
-// on top of the core chat feed, but a failure subscribing to either of
-// those (e.g. an event type this app isn't approved for) shouldn't
-// take the whole chat stream down with it.
+// chat.message.sent is treated as essential here — moderation.banned,
+// channel.subscription.gifts, and kicks.gifted add ban/timeout,
+// gift-sub, and Kicks-spent notices on top of the core chat feed, but a
+// failure subscribing to any of those (e.g. an event type this app
+// isn't approved for) shouldn't take the whole chat stream down with it.
 func (s *Server) ensureKickSubscriptions(ctx context.Context, broadcasterID int64) error {
 	if err := s.ensureKickEventSubscription(ctx, broadcasterID, kickEventMessageSent); err != nil {
 		return err
 	}
 	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventModerationBans)
 	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventSubscriptionGifts)
+	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventKicksGifted)
 	return nil
 }
 
@@ -585,6 +597,15 @@ func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEv
 			Channel:     channel,
 			DisplayName: name,
 			Count:       len(g.Giftees),
+		})
+	case "kicksgifted":
+		k := ev.kicksGifted
+		writeSSE(w, "kicksgifted", kicksGiftedDTO{
+			Channel:     channel,
+			DisplayName: k.Sender.Username,
+			Amount:      k.Gift.Amount,
+			GiftName:    k.Gift.Name,
+			Message:     k.Gift.Message,
 		})
 	}
 }

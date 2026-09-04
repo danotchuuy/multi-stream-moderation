@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useKickChatStream, type KickDisplayMessage } from "../lib/useKickChatStream";
 import { useKickSpamGroups } from "../lib/useKickSpamGroups";
 import { useAutoScroll } from "../lib/useAutoScroll";
-import { sendKickChatMessage } from "../lib/kickApi";
+import { fetchKickChatEmotes, sendKickChatMessage } from "../lib/kickApi";
 import { KickModerationControls } from "./KickModerationControls";
 import { KickSpamGroupsPanel } from "./KickSpamGroupsPanel";
 import { ChatBadges } from "./ChatBadges";
@@ -85,16 +85,12 @@ export function KickChatPanel({
                 m.seq % 2 === 1 ? "chat-row-alt" : null,
                 m.system ? "chat-system" : null,
                 m.deleted ? "chat-deleted" : null,
-                m.giftSub ? "chat-giftsub" : null,
               ]
                 .filter(Boolean)
                 .join(" ") || undefined}
             >
               {m.system ? (
-                <span className="chat-text">
-                  {m.giftSub ? "🎁 " : ""}
-                  {m.text}
-                </span>
+                <span className="chat-text">{m.text}</span>
               ) : (
                 <>
                   {m.reply && (
@@ -160,6 +156,8 @@ export function KickChatPanel({
           onSend={(message, replyToId) => sendKickChatMessage(channel, message, replyToId)}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
+          fetchEmotes={() => fetchKickChatEmotes(channel)}
+          formatEmoteForSend={(emote) => `[emote:${emote.id}:${emote.name}]`}
         />
       </div>
 

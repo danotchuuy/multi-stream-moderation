@@ -32,10 +32,25 @@ const (
 	//     is deprecated (https://dev.twitch.tv/docs/chat/irc-migration/)
 	//     and its anonymous, no-login read no longer has an equivalent;
 	//     EventSub always reads chat "as" a specific signed-in user.
+	//   - moderator:manage:automod: see and act on the AutoMod queue
+	//     (messages held for review). Only granted moderators/the
+	//     broadcaster can actually use it — Twitch itself rejects the
+	//     EventSub subscription for anyone else — so this is harmless to
+	//     request for every user even though most won't need it.
+	//   - bits:read: see Bits cheer notifications (channel.cheer). Bits
+	//     revenue is channel-private, so — like moderator:manage:automod
+	//     above — this is expected to only actually work for the
+	//     channel's own broadcaster/moderators; harmless to request for
+	//     every user regardless, since Twitch enforces that itself when
+	//     the EventSub subscription is created.
+	//   - user:read:emotes: list the emotes the signed-in user can
+	//     actually use (their global/follower/subscriber emotes, plus a
+	//     target channel's follower emotes) for the chat composer's
+	//     emote picker (see twitch_emotes.go).
 	// Sessions authorized before these were added won't have them; the
 	// affected calls fail with a 401 until the user reconnects their
 	// Twitch account.
-	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users user:write:chat channel:manage:broadcast user:read:chat"
+	twitchOAuthScopes = "user:read:moderated_channels moderator:manage:chat_messages moderator:manage:banned_users user:write:chat channel:manage:broadcast user:read:chat moderator:manage:automod bits:read user:read:emotes"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}

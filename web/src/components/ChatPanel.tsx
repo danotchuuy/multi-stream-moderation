@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useChatStream, type DisplayMessage } from "../lib/useChatStream";
 import { useAutoScroll } from "../lib/useAutoScroll";
 import { useTwitchSpamGroups } from "../lib/useTwitchSpamGroups";
-import { sendChatMessage } from "../lib/api";
+import { fetchChatEmotes, sendChatMessage } from "../lib/api";
 import { ModerationControls } from "./ModerationControls";
 import { ChatBadges } from "./ChatBadges";
 import { ChatMessageText } from "./ChatMessageText";
 import { ChatComposer, type ReplyTarget } from "./ChatComposer";
 import { TwitchChannelInfoMenu } from "./TwitchChannelInfoMenu";
 import { TwitchSpamGroupsPanel } from "./TwitchSpamGroupsPanel";
+import { AutomodQueuePanel } from "./AutomodQueuePanel";
 
 type Props = {
   channel: string;
@@ -45,7 +46,7 @@ export function ChatPanel({
   viewerIsBroadcaster,
   onChangeChannel,
 }: Props) {
-  const { messages, connected } = useChatStream(channel);
+  const { messages, connected, automodQueue, markAutomodResolved } = useChatStream(channel);
   const [actionError, setActionError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   // Which message's moderation controls (if any) are currently
@@ -90,14 +91,13 @@ export function ChatPanel({
                 m.system ? "chat-system" : null,
                 m.deleted ? "chat-deleted" : null,
                 m.raid ? "chat-raid" : null,
-                m.giftSub ? "chat-giftsub" : null,
               ]
                 .filter(Boolean)
                 .join(" ") || undefined}
             >
               {m.system ? (
                 <span className="chat-text">
-                  {m.raid ? "🎉 " : m.giftSub ? "🎁 " : ""}
+                  {m.raid ? "🎉 " : ""}
                   {m.text}
                 </span>
               ) : (
@@ -171,8 +171,17 @@ export function ChatPanel({
           onSend={(message, replyToId) => sendChatMessage(channel, message, replyToId)}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
+          fetchEmotes={() => fetchChatEmotes(channel)}
         />
       </div>
+
+      {canModerate && (
+        <AutomodQueuePanel
+          queue={automodQueue}
+          onResolved={markAutomodResolved}
+          onError={setActionError}
+        />
+      )}
 
       {canModerate && (
         <TwitchSpamGroupsPanel channel={channel} groups={spamGroups} onError={setActionError} />

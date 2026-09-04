@@ -180,6 +180,55 @@ func (s *Server) handleTimeoutUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type automodResolveRequestDTO struct {
+	MessageID string `json:"messageId"`
+	// Action is "allow" or "deny".
+	Action string `json:"action"`
+}
+
+// handleResolveAutomodMessage approves or denies a message AutoMod is
+// holding for review. Unlike the other moderation endpoints, this needs
+// no channel/broadcaster ID at all — Twitch resolves the held message
+// purely from its own ID plus the signed-in moderator's, and rejects
+// the call outright if that moderator doesn't actually have a message
+// held by that ID.
+func (s *Server) handleResolveAutomodMessage(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req automodResolveRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	messageID := strings.TrimSpace(req.MessageID)
+	if messageID == "" {
+		http.Error(w, "messageId is required", http.StatusBadRequest)
+		return
+	}
+
+	var action string
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "allow":
+		action = "ALLOW"
+	case "deny":
+		action = "DENY"
+	default:
+		http.Error(w, `action must be "allow" or "deny"`, http.StatusBadRequest)
+		return
+	}
+
+	if err := resolveAutomodMessage(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, sess.UserID, messageID, action); err != nil {
+		writeTwitchAPIError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // writeTwitchAPIError relays a Helix error's status and message to the
 // browser (e.g. "user is a moderator" from trying to ban another mod),
 // falling back to a generic 502 for anything that didn't come from a

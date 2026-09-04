@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { KickChatMessage } from "./kickApi";
+import { clearNotifications, pushNotification } from "./notificationsStore";
 
 const MAX_MESSAGES = 1000;
 
 export type KickDisplayMessage = KickChatMessage & {
   deleted?: boolean;
   system?: boolean;
-  /** Set on the synthetic notice for a gift sub / community gift, so it
-   * can be styled distinctly from an ordinary system notice. */
-  giftSub?: boolean;
   /** Monotonically increasing arrival order, stamped by pushCapped —
    * see the matching field on DisplayMessage in useChatStream.ts for
    * why this exists instead of using a message's position in the
@@ -30,6 +28,16 @@ type GiftSubEvent = {
   channel: string;
   displayName: string;
   count: number;
+};
+
+/** Kicks (Kick's virtual currency) spent in the channel — mirrors
+ * kicksGiftedDTO in internal/server/handlers_kick.go. */
+type KicksGiftedEvent = {
+  channel: string;
+  displayName: string;
+  amount: number;
+  giftName?: string;
+  message?: string;
 };
 
 function pushCapped(
@@ -60,6 +68,7 @@ export function useKickChatStream(channel: string | null) {
   useEffect(() => {
     setMessages([]);
     setConnected(false);
+    clearNotifications("kick");
     if (!channel) {
       return;
     }
@@ -103,22 +112,29 @@ export function useKickChatStream(channel: string | null) {
 
     source.addEventListener("giftsub", (event) => {
       const gift = JSON.parse((event as MessageEvent).data) as GiftSubEvent;
-      const notice: Omit<KickDisplayMessage, "seq"> = {
+      pushNotification({
         id: `giftsub-${Date.now()}-${gift.displayName}`,
+        platform: "kick",
+        kind: "giftsub",
         channel: gift.channel,
         text: `${gift.displayName || "Someone"} gifted ${gift.count} sub${gift.count === 1 ? "" : "s"}!`,
-        username: "",
-        userId: 0,
-        color: "",
-        mod: false,
-        subscriber: false,
-        broadcaster: false,
-        badges: [],
         timestamp: Date.now(),
-        system: true,
-        giftSub: true,
-      };
-      setMessages((prev) => pushCapped(prev, notice));
+      });
+    });
+
+    source.addEventListener("kicksgifted", (event) => {
+      const kicks = JSON.parse((event as MessageEvent).data) as KicksGiftedEvent;
+      const amountText = `${kicks.amount.toLocaleString()} Kick${kicks.amount === 1 ? "" : "s"}`;
+      const giftText = kicks.giftName ? ` (${kicks.giftName})` : "";
+      const messageText = kicks.message ? `: "${kicks.message}"` : "";
+      pushNotification({
+        id: `kicksgifted-${Date.now()}-${kicks.displayName}`,
+        platform: "kick",
+        kind: "kicksgifted",
+        channel: kicks.channel,
+        text: `${kicks.displayName || "Someone"} spent ${amountText}${giftText}${messageText}`,
+        timestamp: Date.now(),
+      });
     });
 
     return () => {

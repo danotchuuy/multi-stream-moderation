@@ -325,13 +325,214 @@ func TestWriteTwitchNotificationAnonymousGiftSub(t *testing.T) {
 	}
 }
 
-func TestWriteTwitchNotificationNonRaidNoticeIgnored(t *testing.T) {
-	event := `{"notice_type": "sub"}`
+func TestWriteTwitchNotificationSub(t *testing.T) {
+	event := `{
+		"notice_type": "sub",
+		"chatter_user_name": "NewSubber",
+		"sub": {"sub_tier": "1000", "is_prime": false}
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.notification", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "sub" {
+		t.Fatalf("events = %+v, want one \"sub\" event", events)
+	}
+	var dto subDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.DisplayName != "NewSubber" || dto.Tier != "Tier 1" || dto.Months != 1 || dto.IsResub {
+		t.Errorf("dto = %+v", dto)
+	}
+}
+
+func TestWriteTwitchNotificationResub(t *testing.T) {
+	event := `{
+		"notice_type": "resub",
+		"chatter_user_name": "LoyalSubber",
+		"resub": {"cumulative_months": 14, "streak_months": 6, "sub_tier": "2000", "is_prime": false},
+		"message": {"text": "Thanks for 14 great months!"}
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.notification", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "sub" {
+		t.Fatalf("events = %+v, want one \"sub\" event", events)
+	}
+	var dto subDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.DisplayName != "LoyalSubber" || dto.Tier != "Tier 2" || dto.Months != 14 || dto.StreakMonths != 6 || !dto.IsResub {
+		t.Errorf("dto = %+v", dto)
+	}
+	if dto.Message != "Thanks for 14 great months!" {
+		t.Errorf("dto.Message = %q, want the attached resub message", dto.Message)
+	}
+}
+
+func TestWriteTwitchNotificationResubWithNoMessage(t *testing.T) {
+	event := `{
+		"notice_type": "resub",
+		"chatter_user_name": "QuietSubber",
+		"resub": {"cumulative_months": 3, "sub_tier": "1000", "is_prime": false}
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.notification", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	var dto subDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.Message != "" {
+		t.Errorf("dto.Message = %q, want empty when no message was attached", dto.Message)
+	}
+}
+
+func TestWriteTwitchNotificationPrimeSub(t *testing.T) {
+	event := `{
+		"notice_type": "sub",
+		"chatter_user_name": "PrimeSubber",
+		"sub": {"sub_tier": "1000", "is_prime": true}
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.notification", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	var dto subDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.Tier != "Prime" {
+		t.Errorf("dto.Tier = %q, want Prime", dto.Tier)
+	}
+}
+
+func TestWriteTwitchNotificationCheer(t *testing.T) {
+	event := `{
+		"is_anonymous": false,
+		"user_id": "123",
+		"user_login": "cheerer",
+		"user_name": "Cheerer",
+		"message": "Take my bits! cheer100",
+		"bits": 100
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.cheer", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "cheer" {
+		t.Fatalf("events = %+v, want one \"cheer\" event", events)
+	}
+	var dto cheerDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.DisplayName != "Cheerer" || dto.Bits != 100 || dto.Message != "Take my bits! cheer100" {
+		t.Errorf("dto = %+v", dto)
+	}
+}
+
+func TestWriteTwitchNotificationAnonymousCheer(t *testing.T) {
+	event := `{
+		"is_anonymous": true,
+		"bits": 50
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.cheer", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "cheer" {
+		t.Fatalf("events = %+v, want one \"cheer\" event", events)
+	}
+	var dto cheerDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.DisplayName != "An anonymous cheerer" || dto.Bits != 50 {
+		t.Errorf("dto = %+v, want an anonymous placeholder and Bits 50", dto)
+	}
+}
+
+func TestWriteTwitchNotificationAutomodMessageHold(t *testing.T) {
+	event := `{
+		"message_id": "held-1",
+		"user_id": "456",
+		"user_login": "someuser",
+		"user_name": "SomeUser",
+		"message": {
+			"text": "hello Kappa world",
+			"fragments": [
+				{"type": "text", "text": "hello "},
+				{"type": "emote", "text": "Kappa", "emote": {"id": "25"}},
+				{"type": "text", "text": " world"}
+			]
+		},
+		"reason": "automod",
+		"automod": {"category": "profanity", "level": 2},
+		"held_at": "2026-01-01T00:00:00Z"
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "automod.message.hold", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "automodhold" {
+		t.Fatalf("events = %+v, want one \"automodhold\" event", events)
+	}
+	var dto automodHoldDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.Channel != "achannel" || dto.MessageID != "held-1" {
+		t.Errorf("dto = %+v", dto)
+	}
+	if dto.Username != "someuser" || dto.DisplayName != "SomeUser" || dto.UserID != "456" {
+		t.Errorf("dto user fields = %+v", dto)
+	}
+	if dto.Reason != "automod" || dto.Category != "profanity" || dto.Level != 2 {
+		t.Errorf("dto reason fields = %+v", dto)
+	}
+	if len(dto.Fragments) != 3 || dto.Fragments[1].ImageURL == "" {
+		t.Errorf("dto.Fragments = %+v, want the emote fragment resolved", dto.Fragments)
+	}
+}
+
+func TestWriteTwitchNotificationAutomodMessageUpdate(t *testing.T) {
+	event := `{"message_id": "held-1", "status": "Approved", "moderator_user_name": "SomeMod"}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "automod.message.update", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "automodupdate" {
+		t.Fatalf("events = %+v, want one \"automodupdate\" event", events)
+	}
+	var dto automodUpdateDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if dto.Channel != "achannel" || dto.MessageID != "held-1" || dto.Status != "Approved" {
+		t.Errorf("dto = %+v", dto)
+	}
+}
+
+func TestWriteTwitchNotificationUnhandledNoticeIgnored(t *testing.T) {
+	event := `{"notice_type": "announcement"}`
 
 	rec := httptest.NewRecorder()
 	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.notification", Event: json.RawMessage(event)}, nil)
 
 	if rec.Body.Len() != 0 {
-		t.Errorf("expected no SSE event for a non-raid notice, got %q", rec.Body.String())
+		t.Errorf("expected no SSE event for an unhandled notice type, got %q", rec.Body.String())
 	}
 }
