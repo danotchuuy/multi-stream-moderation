@@ -85,6 +85,8 @@ type WatchStreakEvent = {
   login: string;
   displayName: string;
   streak: number;
+  /** The chat message the viewer shared with their streak, if any. */
+  message?: string;
 };
 
 /** A Bits cheer — mirrors cheerDTO in internal/server/handlers_chat.go.
@@ -276,12 +278,13 @@ export function useChatStream(channel: string | null) {
     source.addEventListener("watchstreak", (event) => {
       const streak = JSON.parse((event as MessageEvent).data) as WatchStreakEvent;
       const name = streak.displayName || streak.login || "A viewer";
+      const messageText = streak.message ? `: "${streak.message}"` : "";
       pushNotification({
         id: `watchstreak-${Date.now()}-${streak.login}`,
         platform: "twitch",
         kind: "watchstreak",
         channel: streak.channel,
-        text: `${name} is on a ${streak.streak}-stream watch streak!`,
+        text: `${name} is on a ${streak.streak}-stream watch streak!${messageText}`,
         timestamp: Date.now(),
       });
     });

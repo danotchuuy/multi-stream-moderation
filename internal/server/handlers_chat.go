@@ -172,6 +172,7 @@ type watchStreakDTO struct {
 	Login       string `json:"login"`
 	DisplayName string `json:"displayName"`
 	Streak      int    `json:"streak"`
+	Message     string `json:"message,omitempty"`
 }
 
 // giftSubDTO mirrors a gift-sub event — a Twitch channel.chat.notification
@@ -444,6 +445,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 				Login:       ev.Login,
 				DisplayName: ev.DisplayName,
 				Streak:      ev.Streak,
+				Message:     ev.Message,
 			})
 			flusher.Flush()
 		case n, ok := <-eventSubSession.Notifications():

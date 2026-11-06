@@ -108,6 +108,37 @@ func TestConnectWatchStreaksIgnoresOtherNotices(t *testing.T) {
 		if ev.Login != "streaker" || ev.Streak != 5 {
 			t.Errorf("event = %+v, want the watch-streak notice, not the resub", ev)
 		}
+		if ev.Message != "" {
+			t.Errorf("Message = %q, want empty for a streak shared without a message", ev.Message)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for watch-streak event")
+	}
+}
+
+func TestConnectWatchStreaksIncludesSharedMessage(t *testing.T) {
+	server := wsTestServer(t, func(conn *websocket.Conn) {
+		defer conn.Close()
+		streak := `@msg-id=viewermilestone;msg-param-category=watch-streak;msg-param-value=7;login=streaker;display-name=Streaker :tmi.twitch.tv USERNOTICE #achannel :love these streams!`
+		conn.WriteMessage(websocket.TextMessage, []byte(streak))
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+
+	sess, err := connectWatchStreaksTo(context.Background(), wsURL(server.URL), "achannel")
+	if err != nil {
+		t.Fatalf("connectWatchStreaksTo returned error: %v", err)
+	}
+	defer sess.Close()
+
+	select {
+	case ev := <-sess.Events():
+		if ev.Streak != 7 || ev.Message != "love these streams!" {
+			t.Errorf("event = %+v, want Streak 7, Message %q", ev, "love these streams!")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for watch-streak event")
 	}

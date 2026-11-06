@@ -24,6 +24,9 @@ type WatchStreakEvent struct {
 	DisplayName string
 	// Streak is how many consecutive streams the viewer has watched.
 	Streak int
+	// Message is the optional chat message the viewer shared along with
+	// their streak; empty when they shared it without one.
+	Message string
 }
 
 // WatchStreakSession is a live, anonymous, read-only Twitch IRC
@@ -153,10 +156,19 @@ func (s *WatchStreakSession) handleLine(line string) bool {
 		return true
 	}
 	streak, _ := strconv.Atoi(tags["msg-param-value"])
+	// fields[2], when present, is "#channel" optionally followed by
+	// " :<the viewer's shared message>".
+	var message string
+	if len(fields) == 3 {
+		if _, msg, ok := strings.Cut(fields[2], " :"); ok {
+			message = strings.TrimSpace(msg)
+		}
+	}
 	event := WatchStreakEvent{
 		Login:       tags["login"],
 		DisplayName: tags["display-name"],
 		Streak:      streak,
+		Message:     message,
 	}
 	select {
 	case s.events <- event:
