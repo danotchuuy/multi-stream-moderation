@@ -23,11 +23,12 @@ func HasBadge(badges []Badge, setID string) bool {
 // chat message.
 // https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-chat-message-event
 type ChatMessage struct {
-	MessageID        string `json:"message_id"`
-	ChatterUserID    string `json:"chatter_user_id"`
-	ChatterUserLogin string `json:"chatter_user_login"`
-	ChatterUserName  string `json:"chatter_user_name"`
-	Message          struct {
+	BroadcasterUserID string `json:"broadcaster_user_id"`
+	MessageID         string `json:"message_id"`
+	ChatterUserID     string `json:"chatter_user_id"`
+	ChatterUserLogin  string `json:"chatter_user_login"`
+	ChatterUserName   string `json:"chatter_user_name"`
+	Message           struct {
 		Text string `json:"text"`
 		// Fragments breaks Text down into plain-text and special
 		// (emote/cheermote/mention) pieces, in order. Unlike IRC's old
@@ -45,17 +46,35 @@ type ChatMessage struct {
 	Badges      []Badge `json:"badges"`
 	Color       string  `json:"color"`
 	Reply       *Reply  `json:"reply"`
+	// SourceBroadcasterUserID/Login/Name identify the channel a message
+	// was actually typed in during a Shared Chat session. Twitch leaves
+	// them null outside Shared Chat, and may also set them to the
+	// subscribed channel itself for its own messages — see
+	// IsFromSharedChannel for the one check callers actually need.
+	// https://dev.twitch.tv/docs/chat/shared-chat/
+	SourceBroadcasterUserID    *string `json:"source_broadcaster_user_id"`
+	SourceBroadcasterUserLogin *string `json:"source_broadcaster_user_login"`
+	SourceBroadcasterUserName  *string `json:"source_broadcaster_user_name"`
+}
+
+// IsFromSharedChannel reports whether m was posted in another channel
+// taking part in a Shared Chat session with the subscribed one, rather
+// than in the subscribed channel itself.
+func (m *ChatMessage) IsFromSharedChannel() bool {
+	return m.SourceBroadcasterUserID != nil && *m.SourceBroadcasterUserID != "" &&
+		*m.SourceBroadcasterUserID != m.BroadcasterUserID
 }
 
 // Fragment is one piece of a chat message's text. Type is "text",
-// "cheermote", "emote", "mention", or "gif"; only Emote is populated
-// for an "emote" fragment (the app doesn't currently render
-// cheermotes, mentions, or gifs specially).
+// "cheermote", "emote", "mention", or "gif"; Emote is only populated for
+// an "emote" fragment and Gif only for a "gif" one (the app doesn't
+// currently render cheermotes or mentions specially).
 // https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-chat-message-event
 type Fragment struct {
 	Type  string         `json:"type"`
 	Text  string         `json:"text"`
 	Emote *FragmentEmote `json:"emote"`
+	Gif   *FragmentGif   `json:"gif"`
 }
 
 // FragmentEmote is an "emote" fragment's metadata — enough to build the
@@ -63,6 +82,15 @@ type Fragment struct {
 // internal/server/handlers_chat.go).
 type FragmentEmote struct {
 	ID string `json:"id"`
+}
+
+// FragmentGif is a "gif" fragment's metadata: a chat GIF sent through
+// Twitch's chat GIF picker. URL is a ready-to-use asset URL that must be
+// rendered as-is — Twitch's docs say applications must not modify it.
+// https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-chat-message-event
+type FragmentGif struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
 }
 
 // Reply is the parent message a chat reply is threaded to.

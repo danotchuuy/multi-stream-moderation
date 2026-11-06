@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useKickChatStream, type KickDisplayMessage } from "../lib/useKickChatStream";
 import { useKickSpamGroups } from "../lib/useKickSpamGroups";
 import { useAutoScroll } from "../lib/useAutoScroll";
+import { formatClockTime } from "../lib/formatTime";
+import { useShowTimestamps } from "../lib/settingsStore";
 import { fetchKickChatEmotes, sendKickChatMessage } from "../lib/kickApi";
 import { KickModerationControls } from "./KickModerationControls";
 import { KickSpamGroupsPanel } from "./KickSpamGroupsPanel";
@@ -48,6 +50,7 @@ export function KickChatPanel({
   // time, rather than showing every eligible message's controls at once.
   const [openModFor, setOpenModFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
+  const showTimestamps = useShowTimestamps();
 
   return (
     <>
@@ -89,6 +92,9 @@ export function KickChatPanel({
                 .filter(Boolean)
                 .join(" ") || undefined}
             >
+              {showTimestamps && (
+                <span className="chat-timestamp">{formatClockTime(m.timestamp)}</span>
+              )}
               {m.system ? (
                 <span className="chat-text">{m.text}</span>
               ) : (
@@ -121,6 +127,7 @@ export function KickChatPanel({
                       channel={channel}
                       messageId={m.id}
                       userId={m.userId}
+                      username={m.username}
                       onError={setActionError}
                       onDeleted={markDeleted}
                     />

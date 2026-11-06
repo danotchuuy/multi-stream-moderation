@@ -83,9 +83,12 @@ func createAutomodEventSubSubscriptions(ctx context.Context, clientID, accessTok
 }
 
 // createCheerEventSubSubscriptions subscribes sessionID to Bits cheer
-// notifications (twitchCheerEventSubTypes) for broadcasterID. Expected
-// to fail for anyone who isn't actually the broadcaster or a moderator
-// there — see the bits:read scope's comment in twitch_oauth.go — so
+// notifications (twitchCheerEventSubTypes) for broadcasterID. Unlike
+// the AutoMod subscription above, this condition has no
+// moderator_user_id — only broadcaster_user_id — so Twitch requires
+// accessToken to belong to the broadcaster themselves; it's expected to
+// fail (403) for a moderator watching someone else's channel even with
+// bits:read granted — see that scope's comment in twitch_oauth.go — so
 // callers should treat a failure here as "no cheer callouts for this
 // viewer", not a reason to give up on chat entirely.
 func createCheerEventSubSubscriptions(ctx context.Context, clientID, accessToken, broadcasterID, sessionID string) ([]string, error) {

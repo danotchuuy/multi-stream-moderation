@@ -220,6 +220,33 @@
   max-height: calc(100vh - 13rem);
 }
 
+.notifications-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.notifications-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+
+.notifications-filter input {
+  cursor: pointer;
+}
+
+.notifications-settings {
+  padding-top: 0.5rem;
+  margin-top: -0.25rem;
+  border-top: 1px solid var(--border);
+}
+
 .chat-header {
   display: flex;
   align-items: baseline;
@@ -281,6 +308,28 @@
   background: var(--stripe-bg);
 }
 
+/* Highlights a Twitch "chat intro" message's whole row — the closest
+   signal EventSub exposes to a first-time chatter (see FirstMessage in
+   internal/server/handlers_chat.go). Placed after .chat-row-alt so it
+   wins the (equal-specificity) cascade over the alternating stripe. */
+.chat-log li.chat-firstmsg {
+  background: var(--first-chat-bg);
+  border-left: 3px solid var(--first-chat-fg);
+  padding-left: calc(0.5rem - 3px);
+}
+
+/* flex-basis: 100% forces this to claim its own line in the row's
+   flex-wrap: wrap container (see .chat-log li), pushing the badges/
+   username/text that follow it onto the next line instead of widening
+   the row to fit them all on one. */
+.chat-timestamp {
+  flex: 0 0 100%;
+  color: var(--faint-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75em;
+  margin-bottom: 0.15rem;
+}
+
 .chat-badges {
   display: inline-flex;
   align-items: center;
@@ -330,6 +379,17 @@
   width: auto;
   vertical-align: middle;
   margin: -0.2em 0.05em;
+}
+
+.chat-gif {
+  display: inline-block;
+  max-height: 112px;
+  max-width: 200px;
+  width: auto;
+  height: auto;
+  vertical-align: middle;
+  border-radius: 6px;
+  margin: 2px 4px;
 }
 
 .chat-empty {
@@ -455,6 +515,37 @@
 .chat-tag-first {
   background: var(--first-chat-bg);
   color: var(--first-chat-fg);
+}
+
+/* Marks a Twitch Shared Chat message typed in another participant's
+   channel. --source-hue is set per row from the channel's login (see
+   channelHue in ChatPanel.tsx), so each channel keeps its own color. */
+/* Like .chat-timestamp, claims its own line in the (flex-wrap) message
+   row, so the channel tag sits directly above the badges/username
+   rather than inline beside them. A wrapper rather than the tag itself
+   so the pill keeps its own width instead of stretching to the row's. */
+.chat-source-line {
+  flex: 0 0 100%;
+  margin-bottom: 0.15rem;
+}
+
+.chat-tag-source {
+  background: hsl(var(--source-hue) 70% 90%);
+  color: hsl(var(--source-hue) 65% 30%);
+  text-transform: none;
+}
+
+[data-theme="dark"] .chat-tag-source {
+  background: hsl(var(--source-hue) 45% 22%);
+  color: hsl(var(--source-hue) 75% 75%);
+}
+
+/* Placed after .chat-row-alt and .chat-firstmsg so the channel-colored
+   left stripe wins the cascade; a shared chat intro keeps its green
+   background (and "intro" tag) but takes the channel's stripe. */
+.chat-log li.chat-shared {
+  border-left: 3px solid hsl(var(--source-hue) 65% 50%);
+  padding-left: calc(0.5rem - 3px);
 }
 
 .mod-controls {
@@ -839,6 +930,13 @@
   color: var(--muted-fg);
 }
 
+.automod-timestamp {
+  margin-left: auto;
+  color: var(--faint-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+
 .automod-item-text {
   word-break: break-word;
   margin-bottom: 0.5rem;
@@ -924,6 +1022,12 @@
 
 .youtube-panel .link-button {
   color: #cc0000;
+}
+
+.youtube-privacy-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
 }
 
 .youtube-panel .mod-button:hover:not(:disabled),

@@ -60,6 +60,9 @@ export type KickChatMessage = {
    * for a message with no emotes. */
   fragments?: ChatFragment[];
   timestamp: number;
+  /** Set on a replayed history message whose sender was banned or timed
+   * out after sending it. */
+  deleted?: boolean;
 };
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -160,15 +163,18 @@ export async function searchKickCategories(
   return data.categories;
 }
 
+/** username is optional and only labels the ban notice other viewers
+ * see. */
 export async function banKickChatter(
   channel: string,
   userId: number,
+  username?: string,
   reason?: string,
 ): Promise<void> {
   const res = await fetch("/api/kick/bans", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel, userId, reason }),
+    body: JSON.stringify({ channel, userId, username, reason }),
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `ban failed: ${res.status}`));
@@ -181,12 +187,13 @@ export async function timeoutKickChatter(
   channel: string,
   userId: number,
   durationMinutes: number,
+  username?: string,
   reason?: string,
 ): Promise<void> {
   const res = await fetch("/api/kick/timeouts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel, userId, durationMinutes, reason }),
+    body: JSON.stringify({ channel, userId, username, durationMinutes, reason }),
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `timeout failed: ${res.status}`));

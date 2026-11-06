@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -127,8 +128,26 @@ type Server struct {
 	// context instead of a blank chat log. See chat_history.go.
 	twitchChatHistory *chatHistoryCache[string, chatMessageDTO]
 	kickChatHistory   *chatHistoryCache[int64, kickChatMessageDTO]
+	// kickBanHistory holds recent ban/timeout notices per broadcaster,
+	// replayed alongside kickChatHistory; kickRecentBans stops a ban made
+	// from this app from showing twice when Kick's own moderation.banned
+	// webhook for it arrives too, and catches messages delivered after
+	// their sender's ban. See kick_bans.go.
+	kickBanHistory *chatHistoryCache[int64, kickBannedDTO]
+	kickRecentBans *kickRecentBans
+	// kickSubscriptionLocks holds a *sync.Mutex per broadcaster ID; see
+	// lockKickSubscriptions.
+	kickSubscriptionLocks sync.Map
 
 	youtubeAuth *youtubeAuthStore
+
+	// instanceID identifies this particular running process — a fresh
+	// random value minted on every startup, exposed via /api/health so
+	// the frontend can detect a redeploy (the old process replaced by a
+	// new one) and reload to pick up the new build, rather than just
+	// resuming its chat streams against the new process on the same
+	// stale JS bundle.
+	instanceID string
 
 	// youtubeChatConn is a shared gRPC connection to YouTube's live chat
 	// streaming service, dialed lazily on first use by
@@ -136,16 +155,30 @@ type Server struct {
 	youtubeChatConnOnce sync.Once
 	youtubeChatConn     *grpc.ClientConn
 	youtubeChatConnErr  error
+
+	// youtubeHubs holds the one running youtubeChatHub per live chat ID,
+	// shared by every tab watching that chat (see youtube_chat_hub.go).
+	youtubeHubsMu sync.Mutex
+	youtubeHubs   map[string]*youtubeChatHub
 }
 
 // New builds a Server ready to serve.
 func New(cfg Config) *Server {
+	instanceID, err := randomToken()
+	if err != nil {
+		// crypto/rand failing is essentially unheard of, but a
+		// timestamp is a perfectly fine fallback for what's ultimately
+		// just a per-process cache-buster, not a security token.
+		instanceID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+
 	s := &Server{
 		cfg:          cfg,
 		mux:          http.NewServeMux(),
 		auth:         newAuthStore(cfg.SessionStoreFile, cfg.SessionEncryptionKey),
 		channelIDs:   make(map[string]string),
 		twitchBadges: make(map[string]twitchBadgeCatalog),
+		instanceID:   instanceID,
 
 		kickAuth:       newKickAuthStore(cfg.KickSessionStoreFile, cfg.SessionEncryptionKey),
 		kickHub:        newKickHub(),
@@ -155,6 +188,8 @@ func New(cfg Config) *Server {
 
 		twitchChatHistory: newChatHistoryCache[string, chatMessageDTO](chatHistoryLimit, func(m chatMessageDTO) string { return m.ID }),
 		kickChatHistory:   newChatHistoryCache[int64, kickChatMessageDTO](chatHistoryLimit, func(m kickChatMessageDTO) string { return m.ID }),
+		kickBanHistory:    newChatHistoryCache[int64, kickBannedDTO](chatHistoryLimit, func(b kickBannedDTO) string { return b.ID }),
+		kickRecentBans:    newKickRecentBans(),
 
 		youtubeAuth: newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
 	}

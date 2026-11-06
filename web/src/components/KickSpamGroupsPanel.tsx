@@ -108,7 +108,7 @@ function GroupRow({ channel, group, onDeleted, onError }: GroupRowProps) {
               withBusy(() =>
                 runAll(
                   senders,
-                  (s) => timeoutKickChatter(channel, s.userId, minutes),
+                  (s) => timeoutKickChatter(channel, s.userId, minutes, s.username),
                   onError,
                 ),
               );
@@ -130,7 +130,7 @@ function GroupRow({ channel, group, onDeleted, onError }: GroupRowProps) {
           disabled={busy}
           onClick={() =>
             withBusy(() =>
-              runAll(senders, (s) => banKickChatter(channel, s.userId), onError),
+              runAll(senders, (s) => banKickChatter(channel, s.userId, s.username), onError),
             )
           }
         >

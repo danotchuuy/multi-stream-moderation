@@ -37,12 +37,15 @@ const (
 	//     broadcaster can actually use it — Twitch itself rejects the
 	//     EventSub subscription for anyone else — so this is harmless to
 	//     request for every user even though most won't need it.
-	//   - bits:read: see Bits cheer notifications (channel.cheer). Bits
-	//     revenue is channel-private, so — like moderator:manage:automod
-	//     above — this is expected to only actually work for the
-	//     channel's own broadcaster/moderators; harmless to request for
-	//     every user regardless, since Twitch enforces that itself when
-	//     the EventSub subscription is created.
+	//   - bits:read: see Bits cheer notifications (channel.cheer). Unlike
+	//     moderator:manage:automod above, the channel.cheer subscription
+	//     condition has no moderator_user_id — only broadcaster_user_id —
+	//     so Twitch requires the token to belong to the broadcaster
+	//     themselves; like channel:manage:broadcast above, this only
+	//     works for a viewer's own channel, never one they merely
+	//     moderate. Still harmless to request for every user, since
+	//     Twitch enforces that itself when the EventSub subscription is
+	//     created.
 	//   - user:read:emotes: list the emotes the signed-in user can
 	//     actually use (their global/follower/subscriber emotes, plus a
 	//     target channel's follower emotes) for the chat composer's

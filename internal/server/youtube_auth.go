@@ -201,7 +201,15 @@ func (s *Server) youtubeSessionFromRequest(r *http.Request) *youtubeSession {
 	if err != nil {
 		return nil
 	}
-	sess := s.youtubeAuth.session(c.Value)
+	return s.youtubeSessionByToken(r.Context(), c.Value)
+}
+
+// youtubeSessionByToken looks up a session by its cookie value,
+// refreshing the access token if it's expired or close to it. Used
+// directly by youtubeChatHub, which outlives the request that
+// subscribed it.
+func (s *Server) youtubeSessionByToken(ctx context.Context, token string) *youtubeSession {
+	sess := s.youtubeAuth.session(token)
 	if sess == nil {
 		return nil
 	}
@@ -209,10 +217,10 @@ func (s *Server) youtubeSessionFromRequest(r *http.Request) *youtubeSession {
 		return sess
 	}
 
-	refreshed, err := s.refreshYouTubeSession(r.Context(), c.Value, sess)
+	refreshed, err := s.refreshYouTubeSession(ctx, token, sess)
 	if err != nil {
 		log.Printf("youtube: could not refresh session for %s: %v", sess.ChannelTitle, err)
-		s.youtubeAuth.deleteSession(c.Value)
+		s.youtubeAuth.deleteSession(token)
 		return nil
 	}
 	return refreshed

@@ -31,6 +31,7 @@ import { YouTubeStreamPicker } from "./components/YouTubeStreamPicker";
 import { YouTubeChatPanel } from "./components/YouTubeChatPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useTheme } from "./lib/useTheme";
+import { useAutoReloadOnDeploy } from "./lib/useAutoReloadOnDeploy";
 
 const CHANNEL_STORAGE_KEY = "msm.selectedChannel";
 const KICK_CHANNEL_STORAGE_KEY = "msm.kick.selectedChannel";
@@ -50,6 +51,7 @@ function loadStoredYouTubeStream(): YouTubeLiveChatRef | null {
 
 function App() {
   const { theme, toggleTheme } = useTheme();
+  useAutoReloadOnDeploy();
 
   // --- Twitch ---
   const [user, setUser] = useState<TwitchUser | null>(null);
@@ -174,6 +176,12 @@ function App() {
     localStorage.removeItem(YOUTUBE_STREAM_STORAGE_KEY);
   }, []);
 
+  // Keeps the panel (and its error message) on screen, but stops a
+  // reload from re-opening a chat the server already reported as dead.
+  const handleYouTubeStreamEnded = useCallback(() => {
+    localStorage.removeItem(YOUTUBE_STREAM_STORAGE_KEY);
+  }, []);
+
   const handleYouTubeSignOut = useCallback(async () => {
     await youtubeLogout();
     setYoutubeUser(null);
@@ -281,9 +289,11 @@ function App() {
           {!youtubeLoading && youtubeUser && youtubeStream && (
             <YouTubeChatPanel
               liveChatId={youtubeStream.liveChatId}
+              channelTitle={youtubeStream.channelTitle}
               canModerate
               viewerIsBroadcaster={youtubeViewerIsBroadcaster}
               onChangeStream={handleChangeYouTubeStream}
+              onStreamEnded={handleYouTubeStreamEnded}
             />
           )}
         </PlatformSection>

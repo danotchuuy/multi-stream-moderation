@@ -30,11 +30,12 @@ export function youtubeLoginUrl(): string {
 }
 
 /** A resolved live chat: the opaque ID YouTube's chat APIs key off of,
- * plus the broadcasting channel's ID (used to tell whether the viewer
- * owns that channel). */
+ * the broadcasting channel's ID (used to tell whether the viewer owns
+ * that channel), and its title (shown in the chat panel's header). */
 export type YouTubeLiveChatRef = {
   liveChatId: string;
   channelId: string;
+  channelTitle: string;
 };
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -78,10 +79,14 @@ export type YouTubeChatMessage = {
   timestamp: number;
 };
 
+/** Returns the message YouTube created, so the caller can show it right
+ * away — a message sent via the API can take a while to surface back
+ * through the chat stream, or (for a channel YouTube doesn't yet trust)
+ * get held for moderator review and never surface there at all. */
 export async function sendYouTubeChatMessage(
   liveChatId: string,
   message: string,
-): Promise<void> {
+): Promise<YouTubeChatMessage> {
   const res = await fetch("/api/youtube/chat/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -90,6 +95,7 @@ export async function sendYouTubeChatMessage(
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `send failed: ${res.status}`));
   }
+  return res.json();
 }
 
 export async function deleteYouTubeChatMessage(messageId: string): Promise<void> {

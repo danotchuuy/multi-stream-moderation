@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AutomodHeldMessage } from "../lib/useChatStream";
 import { resolveAutomodMessage } from "../lib/api";
 import { ChatMessageText } from "./ChatMessageText";
+import { formatClockTime } from "../lib/formatTime";
 
 type Props = {
   queue: AutomodHeldMessage[];
@@ -40,6 +41,7 @@ function HeldMessageRow({ message, onResolved, onError }: RowProps) {
       <div className="automod-item-meta">
         <span className="chat-user">{message.displayName || message.username}</span>
         <span className="automod-reason">{reasonLabel(message)}</span>
+        <span className="automod-timestamp">{formatClockTime(message.timestamp)}</span>
       </div>
       <div className="automod-item-text">
         <ChatMessageText text={message.text} fragments={message.fragments} />

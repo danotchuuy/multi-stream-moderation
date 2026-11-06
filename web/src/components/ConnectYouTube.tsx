@@ -15,6 +15,13 @@ export function ConnectYouTube({ error }: Props) {
       <a className="button youtube-button" href={youtubeLoginUrl()}>
         Connect YouTube account
       </a>
+      <p className="youtube-privacy-note">
+        By connecting, you agree to the{" "}
+        <a href="/privacy.html" target="_blank" rel="noopener noreferrer">
+          Privacy Policy
+        </a>
+        .
+      </p>
     </div>
   );
 }

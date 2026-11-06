@@ -119,6 +119,58 @@ func TestWriteTwitchNotificationChatMessageResolvesBadgeImages(t *testing.T) {
 	}
 }
 
+func TestWriteTwitchNotificationChatMessageSharedChatSource(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		wantLogin string
+		wantName  string
+	}{
+		{
+			name:      "from another channel in the session",
+			source:    `"source_broadcaster_user_id": "999", "source_broadcaster_user_login": "otherchannel", "source_broadcaster_user_name": "OtherChannel",`,
+			wantLogin: "otherchannel",
+			wantName:  "OtherChannel",
+		},
+		{
+			name:   "from this channel during a session",
+			source: `"source_broadcaster_user_id": "123", "source_broadcaster_user_login": "achannel", "source_broadcaster_user_name": "AChannel",`,
+		},
+		{
+			name:   "no shared chat session",
+			source: `"source_broadcaster_user_id": null, "source_broadcaster_user_login": null, "source_broadcaster_user_name": null,`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := `{
+				"broadcaster_user_id": "123",
+				"message_id": "msg-1",
+				"chatter_user_id": "456",
+				"chatter_user_login": "someuser",
+				"chatter_user_name": "SomeUser",
+				` + tt.source + `
+				"message": {"text": "hello"}
+			}`
+
+			rec := httptest.NewRecorder()
+			writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.message", Event: json.RawMessage(event)}, nil)
+
+			events := sseEvents(t, rec.Body.String())
+			if len(events) != 1 || events[0].event != "message" {
+				t.Fatalf("events = %+v, want one \"message\" event", events)
+			}
+			var dto chatMessageDTO
+			if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if dto.SourceChannel != tt.wantLogin || dto.SourceChannelName != tt.wantName {
+				t.Errorf("source = %q/%q, want %q/%q", dto.SourceChannel, dto.SourceChannelName, tt.wantLogin, tt.wantName)
+			}
+		})
+	}
+}
+
 func TestWriteTwitchNotificationChatMessageWithEmoteFragments(t *testing.T) {
 	event := `{
 		"message_id": "msg-1",
@@ -158,6 +210,41 @@ func TestWriteTwitchNotificationChatMessageWithEmoteFragments(t *testing.T) {
 	}
 	if dto.Fragments[2].Text != " world" || dto.Fragments[2].ImageURL != "" {
 		t.Errorf("Fragments[2] = %+v, want a plain text fragment", dto.Fragments[2])
+	}
+}
+
+func TestWriteTwitchNotificationChatMessageWithGifFragment(t *testing.T) {
+	event := `{
+		"message_id": "msg-1",
+		"chatter_user_id": "456",
+		"chatter_user_login": "someuser",
+		"chatter_user_name": "SomeUser",
+		"message": {
+			"text": "check this out",
+			"fragments": [
+				{"type": "text", "text": "check this out "},
+				{"type": "gif", "text": "", "gif": {"id": "joSNxeswxuc74Juo8X", "url": "https://cdn.7tv.app/gif/joSNxeswxuc74Juo8X"}}
+			]
+		}
+	}`
+
+	rec := httptest.NewRecorder()
+	writeTwitchNotification(rec, "achannel", twitch.Notification{Type: "channel.chat.message", Event: json.RawMessage(event)}, nil)
+
+	events := sseEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].event != "message" {
+		t.Fatalf("events = %+v, want one \"message\" event", events)
+	}
+
+	var dto chatMessageDTO
+	if err := json.Unmarshal([]byte(events[0].data), &dto); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(dto.Fragments) != 2 {
+		t.Fatalf("Fragments = %+v, want 2 fragments", dto.Fragments)
+	}
+	if dto.Fragments[1].ImageURL != "https://cdn.7tv.app/gif/joSNxeswxuc74Juo8X" || !dto.Fragments[1].Gif {
+		t.Errorf("Fragments[1] = %+v, want a gif fragment with its URL and Gif set", dto.Fragments[1])
 	}
 }
 

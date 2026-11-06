@@ -319,6 +319,8 @@ func clearKickWebhookSubscriptions(ctx context.Context, cfg Config) error {
 // subscription left behind here is still cleaned up eventually by
 // clearKickWebhookSubscriptions on the next startup.
 func (s *Server) removeKickEventSubscriptionsForBroadcaster(ctx context.Context, broadcasterUserID int64) {
+	unlock := s.lockKickSubscriptions(broadcasterUserID)
+	defer unlock()
 	accessToken, err := s.kickAppToken.get(ctx, s.cfg)
 	if err != nil {
 		log.Printf("kick: could not fetch app access token to remove broadcaster %d's subscriptions: %v", broadcasterUserID, err)
@@ -362,6 +364,17 @@ func (s *Server) removeKickEventSubscriptionsForBroadcaster(ctx context.Context,
 		return
 	}
 	log.Printf("kick: removed %d webhook subscription(s) for broadcaster %d (no viewers left watching)", len(ids), broadcasterUserID)
+}
+
+// lockKickSubscriptions serializes creating and removing one
+// broadcaster's webhook subscriptions. Without it, a viewer connecting
+// while the previous last viewer's removal is in flight could see the
+// subscriptions as present, and then have them deleted underneath it.
+func (s *Server) lockKickSubscriptions(broadcasterUserID int64) (unlock func()) {
+	m, _ := s.kickSubscriptionLocks.LoadOrStore(broadcasterUserID, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // --- Fan-out ---------------------------------------------------------------
@@ -429,12 +442,16 @@ type kickModerationBannedEvent struct {
 	Broadcaster struct {
 		UserID int64 `json:"user_id"`
 	} `json:"broadcaster"`
+	Moderator struct {
+		Username string `json:"username"`
+	} `json:"moderator"`
 	BannedUser struct {
 		UserID   int64  `json:"user_id"`
 		Username string `json:"username"`
 	} `json:"banned_user"`
 	Metadata struct {
 		Reason    string  `json:"reason"`
+		CreatedAt string  `json:"created_at"`
 		ExpiresAt *string `json:"expires_at"`
 	} `json:"metadata"`
 }
@@ -482,8 +499,8 @@ type kickKicksGiftedEvent struct {
 // received, mirroring streamEvent in handlers_chat.go.
 type kickStreamEvent struct {
 	kind        string // "message", "banned", "giftsub", or "kicksgifted"
-	message     kickChatMessageEvent
-	banned      kickModerationBannedEvent
+	message     kickChatMessageDTO
+	banned      kickBannedDTO
 	giftSubs    kickSubscriptionGiftsEvent
 	kicksGifted kickKicksGiftedEvent
 }
@@ -494,11 +511,22 @@ type kickStreamEvent struct {
 // this is what turns it into a per-viewer SSE stream).
 type kickHub struct {
 	mu          sync.Mutex
-	subscribers map[int64]map[chan kickStreamEvent]struct{}
+	subscribers map[int64]map[*kickSubscriber]struct{}
+}
+
+// kickSubscriber is one viewer's feed from kickHub. lagged is closed if
+// the viewer falls so far behind that an event had to be dropped: the
+// viewer's stream should then end, so its EventSource reconnects and
+// catches up from the server's history, rather than silently missing
+// the event (which could be a ban).
+type kickSubscriber struct {
+	events  chan kickStreamEvent
+	lagged  chan struct{}
+	lagOnce sync.Once
 }
 
 func newKickHub() *kickHub {
-	return &kickHub{subscribers: make(map[int64]map[chan kickStreamEvent]struct{})}
+	return &kickHub{subscribers: make(map[int64]map[*kickSubscriber]struct{})}
 }
 
 // subscribe registers a new viewer for broadcasterUserID. The returned
@@ -507,25 +535,25 @@ func newKickHub() *kickHub {
 // whether it's time to tear down the underlying Kick webhook
 // subscriptions too (see handleKickChatStream), since this hub is what
 // lets several viewers of the same channel share one set of them.
-func (h *kickHub) subscribe(broadcasterUserID int64) (ch chan kickStreamEvent, unsubscribe func() (wasLast bool)) {
-	ch = make(chan kickStreamEvent, 64)
+func (h *kickHub) subscribe(broadcasterUserID int64) (sub *kickSubscriber, unsubscribe func() (wasLast bool)) {
+	sub = &kickSubscriber{events: make(chan kickStreamEvent, 256), lagged: make(chan struct{})}
 
 	h.mu.Lock()
 	if h.subscribers[broadcasterUserID] == nil {
-		h.subscribers[broadcasterUserID] = make(map[chan kickStreamEvent]struct{})
+		h.subscribers[broadcasterUserID] = make(map[*kickSubscriber]struct{})
 	}
-	h.subscribers[broadcasterUserID][ch] = struct{}{}
+	h.subscribers[broadcasterUserID][sub] = struct{}{}
 	h.mu.Unlock()
 
-	return ch, func() (wasLast bool) {
+	return sub, func() (wasLast bool) {
 		h.mu.Lock()
-		delete(h.subscribers[broadcasterUserID], ch)
+		delete(h.subscribers[broadcasterUserID], sub)
 		wasLast = len(h.subscribers[broadcasterUserID]) == 0
 		if wasLast {
 			delete(h.subscribers, broadcasterUserID)
 		}
 		h.mu.Unlock()
-		close(ch)
+		close(sub.events)
 		return wasLast
 	}
 }
@@ -545,12 +573,14 @@ func (h *kickHub) subscriberCount(broadcasterUserID int64) int {
 func (h *kickHub) publish(broadcasterUserID int64, ev kickStreamEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch := range h.subscribers[broadcasterUserID] {
+	for sub := range h.subscribers[broadcasterUserID] {
 		select {
-		case ch <- ev:
+		case sub.events <- ev:
 		default:
-			// Drop the event if that particular viewer's stream can't
-			// keep up, rather than blocking delivery to everyone else.
+			// This viewer can't keep up. Don't block delivery to
+			// everyone else, but don't let it silently miss the event
+			// either — see kickSubscriber.lagged.
+			sub.lagOnce.Do(func() { close(sub.lagged) })
 		}
 	}
 }
@@ -585,15 +615,22 @@ func (s *Server) handleKickWebhook(w http.ResponseWriter, r *http.Request) {
 	switch eventType {
 	case kickEventMessageSent:
 		var msg kickChatMessageEvent
-		if err := json.Unmarshal(body, &msg); err == nil {
-			s.kickHub.publish(msg.Broadcaster.UserID, kickStreamEvent{kind: "message", message: msg})
-			s.kickChatHistory.add(msg.Broadcaster.UserID, kickChatMessageDTOFromEvent(msg.Broadcaster.ChannelSlug, msg))
+		if err := json.Unmarshal(body, &msg); err != nil {
+			log.Printf("kick: could not parse %s webhook: %v", eventType, err)
+			break
 		}
+		dto := kickChatMessageDTOFromEvent(msg.Broadcaster.ChannelSlug, msg)
+		s.markIfSentBeforeBan(msg.Broadcaster.UserID, &dto)
+		s.kickHub.publish(msg.Broadcaster.UserID, kickStreamEvent{kind: "message", message: dto})
+		s.kickChatHistory.add(msg.Broadcaster.UserID, dto)
 	case kickEventModerationBans:
 		var banned kickModerationBannedEvent
-		if err := json.Unmarshal(body, &banned); err == nil {
-			s.kickHub.publish(banned.Broadcaster.UserID, kickStreamEvent{kind: "banned", banned: banned})
+		if err := json.Unmarshal(body, &banned); err != nil {
+			log.Printf("kick: could not parse %s webhook: %v", eventType, err)
+			break
 		}
+		log.Printf("kick: %s webhook: broadcaster %d banned user %d", eventType, banned.Broadcaster.UserID, banned.BannedUser.UserID)
+		s.recordKickBan(banned.Broadcaster.UserID, banned)
 	case kickEventSubscriptionGifts:
 		var gift kickSubscriptionGiftsEvent
 		if err := json.Unmarshal(body, &gift); err == nil {

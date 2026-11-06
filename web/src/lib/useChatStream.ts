@@ -7,13 +7,10 @@ const MAX_MESSAGES = 1000;
 
 /** A chat row as rendered: either a real message (optionally struck
  * through after a delete/ban/timeout) or a synthetic system notice about
- * a ban/timeout/raid. */
+ * a ban/timeout. */
 export type DisplayMessage = ChatMessage & {
   deleted?: boolean;
   system?: boolean;
-  /** Set on the synthetic notice for an incoming raid, so it can be
-   * styled more prominently than an ordinary system notice. */
-  raid?: boolean;
   /** Monotonically increasing arrival order, stamped by pushCapped.
    * Used (instead of a message's position in the array) for the chat
    * log's alternating row background — the array's front gets trimmed
@@ -225,23 +222,14 @@ export function useChatStream(channel: string | null) {
 
     source.addEventListener("raid", (event) => {
       const raid = JSON.parse((event as MessageEvent).data) as RaidEvent;
-      const notice: Omit<DisplayMessage, "seq"> = {
+      pushNotification({
         id: `raid-${Date.now()}-${raid.login}`,
+        platform: "twitch",
+        kind: "raid",
         channel: raid.channel,
         text: `${raid.displayName || "a channel"} is raiding with ${raid.viewerCount.toLocaleString()} viewer${raid.viewerCount === 1 ? "" : "s"}!`,
-        username: "",
-        displayName: "",
-        userId: "",
-        color: "",
-        mod: false,
-        subscriber: false,
-        broadcaster: false,
-        badges: [],
         timestamp: Date.now(),
-        system: true,
-        raid: true,
-      };
-      setMessages((prev) => pushCapped(prev, notice));
+      });
     });
 
     source.addEventListener("giftsub", (event) => {

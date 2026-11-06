@@ -38,17 +38,26 @@ type chatMessageDTO struct {
 	// emote image for each fragment that has one. Omitted (frontend
 	// falls back to plain Text) for a message with no emotes.
 	Fragments []chatFragmentDTO `json:"fragments,omitempty"`
-	Timestamp int64             `json:"timestamp"`
+	// SourceChannel/SourceChannelName name the channel a Twitch Shared
+	// Chat message was actually typed in, when that's a channel other
+	// than this one. Omitted for every message posted here directly
+	// (and always for Kick).
+	SourceChannel     string `json:"sourceChannel,omitempty"`
+	SourceChannelName string `json:"sourceChannelName,omitempty"`
+	Timestamp         int64  `json:"timestamp"`
 }
 
 // chatFragmentDTO is one piece of a chat message's text, shared by both
-// Twitch and Kick messages: either plain text (ImageURL empty) or an
+// Twitch and Kick messages: either plain text (ImageURL empty), an
 // inline emote (ImageURL set, Text the emote's name, used as alt/title
-// text). Sending pre-resolved image URLs means the frontend needs no
-// emote catalog of its own — it just renders each fragment as-is.
+// text), or a Twitch chat GIF (ImageURL set and Gif true, rendered
+// larger than an emote). Sending pre-resolved image URLs means the
+// frontend needs no emote catalog of its own — it just renders each
+// fragment as-is.
 type chatFragmentDTO struct {
 	Text     string `json:"text"`
 	ImageURL string `json:"imageUrl,omitempty"`
+	Gif      bool   `json:"gif,omitempty"`
 }
 
 // chatEmoteDTO is one emote available for a viewer to use in a given
@@ -123,8 +132,12 @@ func twitchFragmentDTOs(fragments []twitch.Fragment) []chatFragmentDTO {
 	out := make([]chatFragmentDTO, len(fragments))
 	for i, f := range fragments {
 		dto := chatFragmentDTO{Text: f.Text}
-		if f.Type == "emote" && f.Emote != nil {
+		switch {
+		case f.Type == "emote" && f.Emote != nil:
 			dto.ImageURL = twitchEmoteImageURL(f.Emote.ID)
+		case f.Type == "gif" && f.Gif != nil:
+			dto.ImageURL = f.Gif.URL
+			dto.Gif = true
 		}
 		out[i] = dto
 	}
@@ -508,6 +521,14 @@ func writeTwitchNotification(w http.ResponseWriter, channel string, n twitch.Not
 				Username:    m.Reply.ParentUserLogin,
 				DisplayName: m.Reply.ParentUserName,
 				Text:        m.Reply.ParentMsgBody,
+			}
+		}
+		if m.IsFromSharedChannel() {
+			if m.SourceBroadcasterUserLogin != nil {
+				dto.SourceChannel = *m.SourceBroadcasterUserLogin
+			}
+			if m.SourceBroadcasterUserName != nil {
+				dto.SourceChannelName = *m.SourceBroadcasterUserName
 			}
 		}
 		writeSSE(w, "message", dto)

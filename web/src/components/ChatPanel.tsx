@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useChatStream, type DisplayMessage } from "../lib/useChatStream";
 import { useAutoScroll } from "../lib/useAutoScroll";
+import { formatClockTime } from "../lib/formatTime";
+import { useShowTimestamps } from "../lib/settingsStore";
 import { useTwitchSpamGroups } from "../lib/useTwitchSpamGroups";
 import { fetchChatEmotes, sendChatMessage } from "../lib/api";
 import { ModerationControls } from "./ModerationControls";
@@ -34,6 +36,16 @@ function canModerateMessage(m: DisplayMessage, viewerIsBroadcaster: boolean): bo
   return true;
 }
 
+/** A stable hue (0-359) per channel login, so each Shared Chat
+ * participant keeps the same tag color for the whole session. */
+function channelHue(login: string): number {
+  let hash = 0;
+  for (let i = 0; i < login.length; i++) {
+    hash = (hash * 31 + login.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 360;
+}
+
 /** A reply needs a real message to thread under, so system notices and
  * already-deleted messages aren't reply targets. */
 function canReplyToMessage(m: DisplayMessage): boolean {
@@ -55,6 +67,7 @@ export function ChatPanel({
   const [openModFor, setOpenModFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
   const spamGroups = useTwitchSpamGroups(messages, viewerIsBroadcaster);
+  const showTimestamps = useShowTimestamps();
 
   return (
     <>
@@ -90,22 +103,38 @@ export function ChatPanel({
                 m.seq % 2 === 1 ? "chat-row-alt" : null,
                 m.system ? "chat-system" : null,
                 m.deleted ? "chat-deleted" : null,
-                m.raid ? "chat-raid" : null,
+                m.firstMessage ? "chat-firstmsg" : null,
+                m.sourceChannel ? "chat-shared" : null,
               ]
                 .filter(Boolean)
                 .join(" ") || undefined}
+              style={
+                m.sourceChannel
+                  ? ({ "--source-hue": channelHue(m.sourceChannel) } as CSSProperties)
+                  : undefined
+              }
             >
+              {showTimestamps && (
+                <span className="chat-timestamp">{formatClockTime(m.timestamp)}</span>
+              )}
               {m.system ? (
-                <span className="chat-text">
-                  {m.raid ? "🎉 " : ""}
-                  {m.text}
-                </span>
+                <span className="chat-text">{m.text}</span>
               ) : (
                 <>
                   {m.reply && (
                     <span className="chat-reply-context">
                       ↩ replying to <strong>{m.reply.displayName || m.reply.username}</strong>:{" "}
                       {m.reply.text}
+                    </span>
+                  )}
+                  {m.sourceChannel && (
+                    <span className="chat-source-line">
+                      <span
+                        className="chat-tag chat-tag-source"
+                        title={`Sent in ${m.sourceChannelName || m.sourceChannel}'s chat (Shared Chat)`}
+                      >
+                        {m.sourceChannelName || m.sourceChannel}
+                      </span>
                     </span>
                   )}
                   <ChatBadges badges={m.badges} />

@@ -14,12 +14,27 @@ export type KickDisplayMessage = KickChatMessage & {
   seq: number;
 };
 
+/** Mirrors kickBannedDTO in internal/server/handlers_kick.go. */
 type KickBannedEvent = {
+  id: string;
   channel: string;
   userId: number;
   username: string;
+  moderator?: string;
+  reason?: string;
   durationMinutes?: number;
+  timestamp: number;
 };
+
+function banNoticeText(banned: KickBannedEvent): string {
+  const who = banned.username || "a chatter";
+  const action = banned.durationMinutes
+    ? `was timed out for ${formatMinutes(banned.durationMinutes)}`
+    : "was banned";
+  const by = banned.moderator ? ` by ${banned.moderator}` : "";
+  const reason = banned.reason ? ` (${banned.reason})` : "";
+  return `${who} ${action}${by}${reason}`;
+}
 
 /** A single gift or a batch gifted at once — just the gifter and how
  * many, never who each one went to (see giftSubDTO in
@@ -56,7 +71,9 @@ function formatMinutes(minutes: number): string {
 }
 
 /** useKickChatStream opens a server-sent-events connection to
- * /api/kick/chat/stream for `channel`. Kick has no server-pushed event
+ * /api/kick/chat/stream for `channel`. The server replays recent
+ * messages and ban notices on every (re)connect, so both are
+ * de-duplicated by ID here. Kick has no server-pushed event
  * for a single message being deleted (unlike Twitch's CLEARMSG), so
  * `markDeleted` lets the caller reflect its own successful delete calls
  * optimistically; a ban/timeout still arrives as a real "banned" event
@@ -81,21 +98,30 @@ export function useKickChatStream(channel: string | null) {
 
     source.addEventListener("message", (event) => {
       const msg = JSON.parse((event as MessageEvent).data) as KickChatMessage;
-      setMessages((prev) => pushCapped(prev, msg));
+      setMessages((prev) =>
+        prev.some((m) => m.id === msg.id) ? prev : pushCapped(prev, msg),
+      );
     });
 
     source.addEventListener("banned", (event) => {
       const banned = JSON.parse((event as MessageEvent).data) as KickBannedEvent;
+      const noticeId = `notice-${banned.id}`;
       setMessages((prev) => {
+        // For a timeout, only messages sent up to it: once it expires
+        // the user can chat again, and those later messages should
+        // stay (relevant when this is a replayed notice).
         const withDeletions = prev.map((m) =>
-          m.userId === banned.userId ? { ...m, deleted: true } : m,
+          !m.system &&
+          m.userId === banned.userId &&
+          (!banned.durationMinutes || m.timestamp <= banned.timestamp)
+            ? { ...m, deleted: true }
+            : m,
         );
+        if (prev.some((m) => m.id === noticeId)) return withDeletions;
         const notice: Omit<KickDisplayMessage, "seq"> = {
-          id: `notice-${Date.now()}-${banned.userId}`,
+          id: noticeId,
           channel: banned.channel,
-          text: banned.durationMinutes
-            ? `${banned.username || "a chatter"} was timed out for ${formatMinutes(banned.durationMinutes)}`
-            : `${banned.username || "a chatter"} was banned`,
+          text: banNoticeText(banned),
           username: "",
           userId: 0,
           color: "",
@@ -103,7 +129,7 @@ export function useKickChatStream(channel: string | null) {
           subscriber: false,
           broadcaster: false,
           badges: [],
-          timestamp: Date.now(),
+          timestamp: banned.timestamp || Date.now(),
           system: true,
         };
         return pushCapped(withDeletions, notice);

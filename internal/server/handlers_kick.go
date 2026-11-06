@@ -61,26 +61,28 @@ func (s *Server) handleKickCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg := q.Get("error_description"); msg != "" {
-		redirectWithError(w, r, entry.returnTo, msg)
+		redirectWithError(w, r, entry.returnTo, "kick_error", msg)
 		return
 	}
 
 	code := q.Get("code")
 	if code == "" {
-		redirectWithError(w, r, entry.returnTo, "kick did not return an authorization code")
+		redirectWithError(w, r, entry.returnTo, "kick_error", "kick did not return an authorization code")
 		return
 	}
 
 	ctx := r.Context()
 	tok, err := exchangeKickCode(ctx, s.cfg, code, entry.codeVerifier)
 	if err != nil {
-		redirectWithError(w, r, entry.returnTo, "could not complete kick login")
+		log.Printf("kick: token exchange failed: %v", err)
+		redirectWithError(w, r, entry.returnTo, "kick_error", "could not complete kick login")
 		return
 	}
 
 	user, err := fetchKickUser(ctx, tok.AccessToken)
 	if err != nil {
-		redirectWithError(w, r, entry.returnTo, "could not load kick profile")
+		log.Printf("kick: could not load profile after login: %v", err)
+		redirectWithError(w, r, entry.returnTo, "kick_error", "could not load kick profile")
 		return
 	}
 
@@ -94,7 +96,7 @@ func (s *Server) handleKickCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionToken, err := s.kickAuth.putSession(sess)
 	if err != nil {
-		redirectWithError(w, r, entry.returnTo, "could not start session")
+		redirectWithError(w, r, entry.returnTo, "kick_error", "could not start session")
 		return
 	}
 
@@ -225,15 +227,19 @@ func (s *Server) handleSendKickChatMessage(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Username, on both ban request DTOs, is optional and only used to
+// label the ban notice shown to other viewers (see recordKickBan).
 type kickBanRequestDTO struct {
-	Channel string `json:"channel"`
-	UserID  int64  `json:"userId"`
-	Reason  string `json:"reason,omitempty"`
+	Channel  string `json:"channel"`
+	UserID   int64  `json:"userId"`
+	Username string `json:"username,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type kickTimeoutRequestDTO struct {
 	Channel         string `json:"channel"`
 	UserID          int64  `json:"userId"`
+	Username        string `json:"username,omitempty"`
 	Reason          string `json:"reason,omitempty"`
 	DurationMinutes int    `json:"durationMinutes"`
 }
@@ -271,6 +277,7 @@ func (s *Server) handleBanKickUser(w http.ResponseWriter, r *http.Request) {
 		writeKickAPIError(w, err)
 		return
 	}
+	s.recordKickBan(broadcasterID, kickBanFromAction(sess.Username, req.UserID, req.Username, req.Reason, 0))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -312,6 +319,7 @@ func (s *Server) handleTimeoutKickUser(w http.ResponseWriter, r *http.Request) {
 		writeKickAPIError(w, err)
 		return
 	}
+	s.recordKickBan(broadcasterID, kickBanFromAction(sess.Username, req.UserID, req.Username, req.Reason, req.DurationMinutes))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -348,6 +356,10 @@ type kickChatMessageDTO struct {
 	// in handlers_chat.go). Omitted for a message with no emotes.
 	Fragments []chatFragmentDTO `json:"fragments,omitempty"`
 	Timestamp int64             `json:"timestamp"`
+	// Deleted is set on a history entry whose sender was later banned
+	// or timed out (see recordKickBan), so a viewer connecting after the
+	// ban sees it as deleted too.
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 // kickBadgeDTOs converts a chatter's Kick badges to the shared DTO
@@ -408,11 +420,19 @@ func kickMessageFragments(content string) []chatFragmentDTO {
 	return out
 }
 
+// kickBannedDTO reports a ban or timeout (DurationMinutes set). Built
+// once per ban by recordKickBan; Channel is filled in per viewer.
 type kickBannedDTO struct {
+	// ID lets the browser skip a ban notice it's already showing when
+	// the history is replayed after a reconnect.
+	ID              string `json:"id"`
 	Channel         string `json:"channel"`
 	UserID          int64  `json:"userId"`
 	Username        string `json:"username"`
+	Moderator       string `json:"moderator,omitempty"`
+	Reason          string `json:"reason,omitempty"`
 	DurationMinutes int    `json:"durationMinutes,omitempty"`
+	Timestamp       int64  `json:"timestamp"`
 }
 
 // kicksGiftedDTO mirrors a kicks.gifted webhook: a viewer spent Kicks
@@ -458,12 +478,12 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ensureKickSubscriptions(ctx, broadcasterID); err != nil {
-		writeKickAPIError(w, err)
-		return
-	}
-
-	events, unsubscribe := s.kickHub.subscribe(broadcasterID)
+	// Join the hub before ensuring the webhook subscriptions exist, not
+	// after: removeKickEventSubscriptionsForBroadcaster (from the last
+	// viewer leaving) checks the hub for viewers before deleting, and a
+	// viewer that wasn't in the hub yet would have its subscriptions
+	// deleted out from under it.
+	sub, unsubscribe := s.kickHub.subscribe(broadcasterID)
 	defer func() {
 		if !unsubscribe() {
 			// Other viewers are still watching this channel — its
@@ -481,6 +501,11 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 		}()
 	}()
 
+	if err := s.ensureKickSubscriptions(ctx, broadcasterID); err != nil {
+		writeKickAPIError(w, err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -489,10 +514,9 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 	// Kick's webhooks are push-only — there's no way to fetch messages
 	// posted before this subscription started — so the best available
 	// "history" is whatever this server has already seen for this
-	// channel since it started up.
-	for _, dto := range s.kickChatHistory.recent(broadcasterID) {
-		writeSSE(w, "message", dto)
-	}
+	// channel since it started up, including bans (whose users'
+	// messages recordKickBan has already marked deleted).
+	writeKickHistory(w, channel, s.kickChatHistory.recent(broadcasterID), s.kickBanHistory.recent(broadcasterID))
 	flusher.Flush()
 
 	keepalive := time.NewTicker(30 * time.Second)
@@ -502,9 +526,14 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case ev := <-events:
+		case ev := <-sub.events:
 			writeKickStreamEvent(w, channel, ev)
 			flusher.Flush()
+		case <-sub.lagged:
+			// An event was dropped for this viewer. End the response;
+			// EventSource reconnects and replays history, which already
+			// reflects anything missed (bans included).
+			return
 		case <-keepalive.C:
 			fmt.Fprint(w, ": keepalive\n\n")
 			flusher.Flush()
@@ -520,12 +549,19 @@ func (s *Server) handleKickChatStream(w http.ResponseWriter, r *http.Request) {
 // failure subscribing to any of those (e.g. an event type this app
 // isn't approved for) shouldn't take the whole chat stream down with it.
 func (s *Server) ensureKickSubscriptions(ctx context.Context, broadcasterID int64) error {
+	unlock := s.lockKickSubscriptions(broadcasterID)
+	defer unlock()
 	if err := s.ensureKickEventSubscription(ctx, broadcasterID, kickEventMessageSent); err != nil {
 		return err
 	}
-	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventModerationBans)
-	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventSubscriptionGifts)
-	_ = s.ensureKickEventSubscription(ctx, broadcasterID, kickEventKicksGifted)
+	for _, event := range []string{kickEventModerationBans, kickEventSubscriptionGifts, kickEventKicksGifted} {
+		if err := s.ensureKickEventSubscription(ctx, broadcasterID, event); err != nil {
+			// Not fatal, but worth knowing about: without
+			// moderation.banned, bans made outside this app (e.g. on
+			// kick.com) won't show up for anyone.
+			log.Printf("kick: could not subscribe to %s for broadcaster %d: %v", event, broadcasterID, err)
+		}
+	}
 	return nil
 }
 
@@ -571,21 +607,12 @@ func kickChatMessageDTOFromEvent(channel string, m kickChatMessageEvent) kickCha
 func writeKickStreamEvent(w http.ResponseWriter, channel string, ev kickStreamEvent) {
 	switch ev.kind {
 	case "message":
-		writeSSE(w, "message", kickChatMessageDTOFromEvent(channel, ev.message))
+		dto := ev.message
+		dto.Channel = channel
+		writeSSE(w, "message", dto)
 	case "banned":
-		b := ev.banned
-		dto := kickBannedDTO{
-			Channel:  channel,
-			UserID:   b.BannedUser.UserID,
-			Username: b.BannedUser.Username,
-		}
-		if b.Metadata.ExpiresAt != nil {
-			if expires, err := time.Parse(time.RFC3339, *b.Metadata.ExpiresAt); err == nil {
-				if mins := int(time.Until(expires).Minutes()); mins > 0 {
-					dto.DurationMinutes = mins
-				}
-			}
-		}
+		dto := ev.banned
+		dto.Channel = channel
 		writeSSE(w, "banned", dto)
 	case "giftsub":
 		g := ev.giftSubs

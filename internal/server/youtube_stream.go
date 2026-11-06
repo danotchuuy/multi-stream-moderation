@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
-	"net/http"
 	"time"
 
 	"google.golang.org/grpc"
@@ -29,11 +27,50 @@ const (
 	// idle chat could otherwise leave the connection looking dead to a
 	// proxy sitting between us and the browser.
 	youtubeStreamKeepaliveInterval = 15 * time.Second
-	// youtubeStreamReconnectDelay is the backoff before re-opening the
-	// gRPC stream after a transient error (e.g. RESOURCE_EXHAUSTED, a
-	// network blip, or the server closing the stream normally).
+	// youtubeStreamReconnectDelay is the base backoff before re-opening
+	// the gRPC stream after a transient error (a network blip, or the
+	// server closing the stream normally) — see youtubeNextReconnectDelay
+	// for how this grows on repeated failures.
 	youtubeStreamReconnectDelay = 3 * time.Second
+	// youtubeStreamMaxReconnectDelay caps how far the backoff grows, so a
+	// persistently failing stream still retries every couple of minutes
+	// rather than backing off forever.
+	youtubeStreamMaxReconnectDelay = 2 * time.Minute
+	// youtubeStreamHealthyDuration is how long a stream has to stay open
+	// before the next failure is treated as a fresh transient blip (reset
+	// backoff to the base delay) rather than a continuation of the same
+	// problem (keep backing off). Google closing a long-lived stream on
+	// its own after a while is normal and shouldn't count against this.
+	youtubeStreamHealthyDuration = 30 * time.Second
+	// youtubeStreamResourceExhaustedDelay floors the backoff after a
+	// RESOURCE_EXHAUSTED (quota) error. These fail instantly — the stream
+	// never gets a chance to run long enough to trip
+	// youtubeStreamHealthyDuration — so without this floor the reconnect
+	// loop would otherwise hammer the base 3-second delay for the rest of
+	// the day every time it's called, burning through whatever quota is
+	// left with no chance of succeeding.
+	youtubeStreamResourceExhaustedDelay = 30 * time.Second
 )
+
+// youtubeNextReconnectDelay computes how long to wait before reconnecting
+// after a relayYouTubeChatStream attempt that ran for streamAge before
+// failing with err. prevDelay is the delay used before that attempt (0
+// for the first attempt ever).
+func youtubeNextReconnectDelay(prevDelay, streamAge time.Duration, err error) time.Duration {
+	if streamAge >= youtubeStreamHealthyDuration {
+		prevDelay = 0
+	}
+	delay := youtubeStreamReconnectDelay
+	if prevDelay > 0 {
+		if delay = prevDelay * 2; delay > youtubeStreamMaxReconnectDelay {
+			delay = youtubeStreamMaxReconnectDelay
+		}
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted && delay < youtubeStreamResourceExhaustedDelay {
+		delay = youtubeStreamResourceExhaustedDelay
+	}
+	return delay
+}
 
 // youtubeChatServiceClient lazily dials the shared gRPC connection used
 // for all liveChatMessages.streamList calls. One connection is reused
@@ -77,12 +114,11 @@ func youtubeStreamErrTerminal(err error) bool {
 }
 
 // relayYouTubeChatStream opens one liveChatMessages.streamList RPC and
-// relays text messages to the browser as they arrive, until the stream
-// ends (error, or the request context is cancelled). *pageToken is
-// updated as responses arrive so a subsequent call can resume the
-// stream from where this one left off, per YouTube's reconnection
-// guidance.
-func (s *Server) relayYouTubeChatStream(ctx context.Context, client youtubepb.V3DataLiveChatMessageServiceClient, accessToken, liveChatID string, pageToken *string, w http.ResponseWriter, flusher http.Flusher) error {
+// hands each response to onResponse as it arrives, until the stream
+// ends (error, or ctx is cancelled). *pageToken is updated as responses
+// arrive so a subsequent call can resume the stream from where this one
+// left off, per YouTube's reconnection guidance.
+func relayYouTubeChatStream(ctx context.Context, client youtubepb.V3DataLiveChatMessageServiceClient, accessToken, liveChatID string, pageToken *string, onResponse func(*youtubepb.LiveChatMessageListResponse)) error {
 	req := &youtubepb.LiveChatMessageListRequest{
 		LiveChatId: proto.String(liveChatID),
 		Part:       []string{"snippet", "authorDetails"},
@@ -96,54 +132,36 @@ func (s *Server) relayYouTubeChatStream(ctx context.Context, client youtubepb.V3
 	if err != nil {
 		return err
 	}
-
-	type recvResult struct {
-		resp *youtubepb.LiveChatMessageListResponse
-		err  error
-	}
-	// Buffered so the background Recv() goroutine can hand off its
-	// result and exit even if this function has already returned (e.g.
-	// because ctx was cancelled while a Recv() was in flight).
-	msgs := make(chan recvResult, 1)
-	recv := func() {
-		resp, err := stream.Recv()
-		msgs <- recvResult{resp, err}
-	}
-	go recv()
-
-	keepalive := time.NewTicker(youtubeStreamKeepaliveInterval)
-	defer keepalive.Stop()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-keepalive.C:
-			fmt.Fprint(w, ": keepalive\n\n")
-			flusher.Flush()
-		case res := <-msgs:
-			if res.err != nil {
-				return res.err
-			}
-			if next := res.resp.GetNextPageToken(); next != "" {
-				*pageToken = next
-			}
-			for _, item := range res.resp.GetItems() {
-				writeYouTubeChatMessage(w, item)
-			}
-			flusher.Flush()
-			go recv()
+		resp, err := stream.Recv()
+		if err != nil {
+			return err
 		}
+		if next := resp.GetNextPageToken(); next != "" {
+			*pageToken = next
+		}
+		onResponse(resp)
 	}
 }
 
-func writeYouTubeChatMessage(w http.ResponseWriter, item *youtubepb.LiveChatMessage) {
+// youtubeGiftSubDTO is YouTube's version of giftSubDTO, carrying the
+// event's ID so the browser can de-duplicate it when the hub's backlog
+// is replayed after a reconnect.
+type youtubeGiftSubDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Count       int    `json:"count"`
+}
+
+// youtubeChatEventFromItem converts a chat item into the SSE event to
+// relay, or ok=false for item types this app doesn't show.
+func youtubeChatEventFromItem(item *youtubepb.LiveChatMessage) (ev youtubeChatEvent, ok bool) {
 	snippet := item.GetSnippet()
 
 	switch snippet.GetType() {
 	case youtubepb.LiveChatMessageSnippet_TypeWrapper_TEXT_MESSAGE_EVENT:
 		if !snippet.GetHasDisplayContent() {
-			return
+			return ev, false
 		}
 
 		ts := time.Now().UnixMilli()
@@ -152,7 +170,7 @@ func writeYouTubeChatMessage(w http.ResponseWriter, item *youtubepb.LiveChatMess
 		}
 
 		author := item.GetAuthorDetails()
-		writeSSE(w, "message", youtubeChatMessageDTO{
+		return newYouTubeChatEvent("message", youtubeChatMessageDTO{
 			ID:           item.GetId(),
 			Text:         snippet.GetDisplayMessage(),
 			DisplayName:  author.GetDisplayName(),
@@ -162,17 +180,19 @@ func writeYouTubeChatMessage(w http.ResponseWriter, item *youtubepb.LiveChatMess
 			Subscriber:   author.GetIsChatSponsor(),
 			Broadcaster:  author.GetIsChatOwner(),
 			Timestamp:    ts,
-		})
+		}), true
 
 	case youtubepb.LiveChatMessageSnippet_TypeWrapper_MEMBERSHIP_GIFTING_EVENT:
 		// The gifter's own announcement, reporting the whole batch at
 		// once. The per-recipient "gift membership received" notices
 		// (GIFT_MEMBERSHIP_RECEIVED_EVENT, one per giftee) are
-		// deliberately left unhandled below — showing each recipient
-		// too would just be noise on top of this summary.
-		writeSSE(w, "giftsub", giftSubDTO{
+		// deliberately left unhandled — showing each recipient too would
+		// just be noise on top of this summary.
+		return newYouTubeChatEvent("giftsub", youtubeGiftSubDTO{
+			ID:          item.GetId(),
 			DisplayName: item.GetAuthorDetails().GetDisplayName(),
 			Count:       int(snippet.GetMembershipGiftingDetails().GetGiftMembershipsCount()),
-		})
+		}), true
 	}
+	return ev, false
 }

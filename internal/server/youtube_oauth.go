@@ -148,12 +148,15 @@ func resolveOwnActiveLiveChat(ctx context.Context, accessToken string) (liveChat
 
 // resolveVideoLiveChat looks up a specific video's active live chat ID,
 // along with the broadcasting channel's ID (needed to tell whether the
-// viewer is that channel's owner).
-func resolveVideoLiveChat(ctx context.Context, accessToken, videoID string) (liveChatID, channelID string, err error) {
+// viewer is that channel's owner) and title (shown in the chat panel's
+// header). videos.list's snippet already carries the channel's title
+// directly, so this needs no separate channels.list call to get it.
+func resolveVideoLiveChat(ctx context.Context, accessToken, videoID string) (liveChatID, channelID, channelTitle string, err error) {
 	var out struct {
 		Items []struct {
 			Snippet struct {
-				ChannelID string `json:"channelId"`
+				ChannelID    string `json:"channelId"`
+				ChannelTitle string `json:"channelTitle"`
 			} `json:"snippet"`
 			LiveStreamingDetails struct {
 				ActiveLiveChatID string `json:"activeLiveChatId"`
@@ -162,16 +165,16 @@ func resolveVideoLiveChat(ctx context.Context, accessToken, videoID string) (liv
 	}
 	params := url.Values{"part": {"snippet,liveStreamingDetails"}, "id": {videoID}}
 	if err := youtubeAPIRequest(ctx, http.MethodGet, youtubeAPIBase+"/videos?"+params.Encode(), accessToken, nil, &out); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(out.Items) == 0 {
-		return "", "", fmt.Errorf("youtube: video %q not found", videoID)
+		return "", "", "", fmt.Errorf("youtube: video %q not found", videoID)
 	}
 	item := out.Items[0]
 	if item.LiveStreamingDetails.ActiveLiveChatID == "" {
-		return "", "", errors.New("youtube: that video has no active live chat (it may not be live)")
+		return "", "", "", errors.New("youtube: that video has no active live chat (it may not be live)")
 	}
-	return item.LiveStreamingDetails.ActiveLiveChatID, item.Snippet.ChannelID, nil
+	return item.LiveStreamingDetails.ActiveLiveChatID, item.Snippet.ChannelID, item.Snippet.ChannelTitle, nil
 }
 
 // youtubeVideoIDPattern matches an 11-character YouTube video ID, the

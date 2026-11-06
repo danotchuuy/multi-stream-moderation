@@ -14,6 +14,8 @@ type Props = {
   channel: string;
   messageId: string;
   userId: number;
+  /** Only used to label the ban notice other viewers see. */
+  username: string;
   onError: (message: string) => void;
   /** Kick sends no server-side event confirming a single message was
    * deleted (unlike Twitch's CLEARMSG), so the panel needs to be told
@@ -25,6 +27,7 @@ export function KickModerationControls({
   channel,
   messageId,
   userId,
+  username,
   onError,
   onDeleted,
 }: Props) {
@@ -70,7 +73,7 @@ export function KickModerationControls({
           const minutes = Number(e.target.value);
           e.target.value = "";
           if (minutes > 0) {
-            run(() => timeoutKickChatter(channel, userId, minutes));
+            run(() => timeoutKickChatter(channel, userId, minutes, username));
           }
         }}
       >
@@ -89,7 +92,7 @@ export function KickModerationControls({
         aria-label="Ban"
         title="Ban"
         disabled={busy}
-        onClick={() => run(() => banKickChatter(channel, userId))}
+        onClick={() => run(() => banKickChatter(channel, userId, username))}
       >
         🔨
       </button>

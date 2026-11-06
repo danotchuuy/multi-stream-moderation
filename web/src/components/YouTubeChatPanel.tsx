@@ -5,14 +5,24 @@ import {
 } from "../lib/useYouTubeChatStream";
 import { sendYouTubeChatMessage } from "../lib/youtubeApi";
 import { useAutoScroll } from "../lib/useAutoScroll";
+import { formatClockTime } from "../lib/formatTime";
+import { useShowTimestamps } from "../lib/settingsStore";
 import { YouTubeModerationControls } from "./YouTubeModerationControls";
 import { ChatComposer } from "./ChatComposer";
 
 type Props = {
   liveChatId: string;
+  /** The broadcasting channel's name, for the panel header — falls back
+   * to a generic label for a stream picked before this was added, whose
+   * localStorage entry predates the field. */
+  channelTitle: string;
   canModerate: boolean;
   viewerIsBroadcaster: boolean;
   onChangeStream: () => void;
+  /** Called once the server reports the chat can't be streamed any more
+   * (e.g. the broadcast ended), so the caller can stop restoring it on
+   * future page loads. */
+  onStreamEnded?: () => void;
 };
 
 function canModerateMessage(
@@ -27,28 +37,32 @@ function canModerateMessage(
 
 export function YouTubeChatPanel({
   liveChatId,
+  channelTitle,
   canModerate,
   viewerIsBroadcaster,
   onChangeStream,
+  onStreamEnded,
 }: Props) {
-  const { messages, connected, streamError, markDeleted } =
-    useYouTubeChatStream(liveChatId);
+  const { messages, connected, ended, streamError, markDeleted, addSentMessage } =
+    useYouTubeChatStream(liveChatId, onStreamEnded);
   const [actionError, setActionError] = useState<string | null>(null);
   // Which message's moderation controls (if any) are currently
   // expanded — toggled by clicking that message's username, one at a
   // time, rather than showing every eligible message's controls at once.
   const [openModFor, setOpenModFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
+  const showTimestamps = useShowTimestamps();
 
   return (
     <div className="card chat-panel youtube-panel">
       <header className="chat-header">
         <div>
           <h2>
-            Live chat <span className="platform-badge youtube-badge">YouTube</span>
+            {channelTitle || "Live chat"}{" "}
+            <span className="platform-badge youtube-badge">YouTube</span>
           </h2>
           <span className={`status ${connected ? "connected" : "connecting"}`}>
-            {connected ? "connected" : "connecting..."}
+            {connected ? "connected" : ended ? "disconnected" : "connecting..."}
           </span>
         </div>
         <button className="link-button" onClick={onChangeStream}>
@@ -80,6 +94,9 @@ export function YouTubeChatPanel({
               .filter(Boolean)
               .join(" ") || undefined}
           >
+            {showTimestamps && (
+              <span className="chat-timestamp">{formatClockTime(m.timestamp)}</span>
+            )}
             {m.system ? (
               <span className="chat-text">{m.giftSub ? "🎁 " : ""}{m.text}</span>
             ) : (
@@ -118,7 +135,12 @@ export function YouTubeChatPanel({
         )}
       </ul>
 
-      <ChatComposer onSend={(message) => sendYouTubeChatMessage(liveChatId, message)} />
+      <ChatComposer
+        onSend={async (message) => {
+          const sent = await sendYouTubeChatMessage(liveChatId, message);
+          addSentMessage(sent);
+        }}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,26 +44,28 @@ func (s *Server) handleTwitchCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg := q.Get("error_description"); msg != "" {
-		redirectWithError(w, r, returnTo, msg)
+		redirectWithError(w, r, returnTo, "twitch_error", msg)
 		return
 	}
 
 	code := q.Get("code")
 	if code == "" {
-		redirectWithError(w, r, returnTo, "twitch did not return an authorization code")
+		redirectWithError(w, r, returnTo, "twitch_error", "twitch did not return an authorization code")
 		return
 	}
 
 	ctx := r.Context()
 	tok, err := exchangeTwitchCode(ctx, s.cfg, code)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not complete twitch login")
+		log.Printf("twitch: token exchange failed: %v", err)
+		redirectWithError(w, r, returnTo, "twitch_error", "could not complete twitch login")
 		return
 	}
 
 	user, err := fetchTwitchUser(ctx, s.cfg.TwitchClientID, tok.AccessToken)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not load twitch profile")
+		log.Printf("twitch: could not load profile after login: %v", err)
+		redirectWithError(w, r, returnTo, "twitch_error", "could not load twitch profile")
 		return
 	}
 
@@ -77,7 +80,7 @@ func (s *Server) handleTwitchCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionToken, err := s.auth.putSession(sess)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not start session")
+		redirectWithError(w, r, returnTo, "twitch_error", "could not start session")
 		return
 	}
 
@@ -85,13 +88,19 @@ func (s *Server) handleTwitchCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, returnTo, http.StatusFound)
 }
 
-func redirectWithError(w http.ResponseWriter, r *http.Request, returnTo, message string) {
+// redirectWithError sends the viewer back to returnTo with an error
+// message attached under the given query param — a distinct param per
+// provider (e.g. "youtube_error" vs "twitch_error"), since App.tsx reads
+// each into its own provider-specific error state and a shared param
+// name would misattribute one provider's failure to another's connect
+// section.
+func redirectWithError(w http.ResponseWriter, r *http.Request, returnTo, param, message string) {
 	u, err := url.Parse(returnTo)
 	if err != nil {
 		u = &url.URL{Path: "/"}
 	}
 	q := u.Query()
-	q.Set("twitch_error", message)
+	q.Set(param, message)
 	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }

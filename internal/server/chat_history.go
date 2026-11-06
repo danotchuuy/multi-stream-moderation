@@ -51,6 +51,17 @@ func (c *chatHistoryCache[K, M]) add(key K, msg M) {
 	c.entries[key] = list
 }
 
+// update applies fn to each of key's buffered messages in place — e.g.
+// to mark a banned user's messages deleted, so a viewer connecting
+// afterwards doesn't see them as live.
+func (c *chatHistoryCache[K, M]) update(key K, fn func(*M)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.entries[key] {
+		fn(&c.entries[key][i])
+	}
+}
+
 // recent returns a copy of key's buffered history, oldest first.
 func (c *chatHistoryCache[K, M]) recent(key K) []M {
 	c.mu.Lock()

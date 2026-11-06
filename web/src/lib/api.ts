@@ -68,6 +68,11 @@ export type ChatMessage = {
   /** Text broken into plain-text/emote pieces for rendering; absent
    * for a message with no emotes. */
   fragments?: ChatFragment[];
+  /** During a Twitch Shared Chat session, the login/display name of the
+   * channel this message was actually typed in — set only when that's
+   * a channel other than the one being watched. */
+  sourceChannel?: string;
+  sourceChannelName?: string;
   timestamp: number;
 };
 

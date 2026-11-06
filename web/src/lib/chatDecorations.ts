@@ -11,13 +11,17 @@ export type ChatReply = {
 
 /** One piece of a chat message's text, as broken down server-side (see
  * chatFragmentDTO in internal/server/handlers_chat.go) — either plain
- * text (imageUrl unset) or an inline emote image, pre-resolved to its
- * CDN URL so the frontend needs no emote catalog of its own. Shared by
- * both Twitch and Kick messages; a message with no emotes carries no
- * fragments at all, and renders from its plain text instead. */
+ * text (imageUrl unset), an inline emote image, or a Twitch chat GIF
+ * (gif true), pre-resolved to its CDN/asset URL so the frontend needs
+ * no emote catalog of its own. Shared by both Twitch and Kick messages;
+ * a message with no emotes/gifs carries no fragments at all, and
+ * renders from its plain text instead. */
 export type ChatFragment = {
   text: string;
   imageUrl?: string;
+  /** Set when imageUrl is a Twitch chat GIF rather than an emote, so it
+   * renders larger than an inline emote. Always false/unset for Kick. */
+  gif?: boolean;
 };
 
 /** One emote a viewer can pick from the chat composer's emote picker

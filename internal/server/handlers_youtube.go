@@ -2,13 +2,11 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	"google.golang.org/grpc/status"
 )
 
 // --- OAuth ---------------------------------------------------------------
@@ -56,30 +54,32 @@ func (s *Server) handleYouTubeCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg := q.Get("error_description"); msg != "" {
-		redirectWithError(w, r, returnTo, msg)
+		redirectWithError(w, r, returnTo, "youtube_error", msg)
 		return
 	}
 	if msg := q.Get("error"); msg != "" {
-		redirectWithError(w, r, returnTo, msg)
+		redirectWithError(w, r, returnTo, "youtube_error", msg)
 		return
 	}
 
 	code := q.Get("code")
 	if code == "" {
-		redirectWithError(w, r, returnTo, "youtube did not return an authorization code")
+		redirectWithError(w, r, returnTo, "youtube_error", "youtube did not return an authorization code")
 		return
 	}
 
 	ctx := r.Context()
 	tok, err := exchangeYouTubeCode(ctx, s.cfg, code)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not complete youtube login")
+		log.Printf("youtube: token exchange failed: %v", err)
+		redirectWithError(w, r, returnTo, "youtube_error", "could not complete youtube login")
 		return
 	}
 
 	channel, err := fetchOwnYouTubeChannel(ctx, tok.AccessToken)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not load youtube channel")
+		log.Printf("youtube: could not load channel after login: %v", err)
+		redirectWithError(w, r, returnTo, "youtube_error", "could not load youtube channel")
 		return
 	}
 
@@ -93,7 +93,7 @@ func (s *Server) handleYouTubeCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionToken, err := s.youtubeAuth.putSession(sess)
 	if err != nil {
-		redirectWithError(w, r, returnTo, "could not start session")
+		redirectWithError(w, r, returnTo, "youtube_error", "could not start session")
 		return
 	}
 
@@ -140,8 +140,9 @@ func (s *Server) handleYouTubeAuthLogout(w http.ResponseWriter, r *http.Request)
 // --- Picking a live chat ---------------------------------------------------
 
 type youtubeLiveChatRefDTO struct {
-	LiveChatID string `json:"liveChatId"`
-	ChannelID  string `json:"channelId"`
+	LiveChatID   string `json:"liveChatId"`
+	ChannelID    string `json:"channelId"`
+	ChannelTitle string `json:"channelTitle"`
 }
 
 // handleOwnYouTubeLiveChat finds the signed-in user's own currently
@@ -162,7 +163,11 @@ func (s *Server) handleOwnYouTubeLiveChat(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(youtubeLiveChatRefDTO{LiveChatID: liveChatID, ChannelID: sess.ChannelID})
+	json.NewEncoder(w).Encode(youtubeLiveChatRefDTO{
+		LiveChatID:   liveChatID,
+		ChannelID:    sess.ChannelID,
+		ChannelTitle: sess.ChannelTitle,
+	})
 }
 
 // handleResolveYouTubeVideo resolves a pasted video ID or URL to its
@@ -185,14 +190,18 @@ func (s *Server) handleResolveYouTubeVideo(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	liveChatID, channelID, err := resolveVideoLiveChat(r.Context(), sess.AccessToken, videoID)
+	liveChatID, channelID, channelTitle, err := resolveVideoLiveChat(r.Context(), sess.AccessToken, videoID)
 	if err != nil {
 		writeYouTubeError(w, err, http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(youtubeLiveChatRefDTO{LiveChatID: liveChatID, ChannelID: channelID})
+	json.NewEncoder(w).Encode(youtubeLiveChatRefDTO{
+		LiveChatID:   liveChatID,
+		ChannelID:    channelID,
+		ChannelTitle: channelTitle,
+	})
 }
 
 func writeYouTubeError(w http.ResponseWriter, err error, fallbackStatus int) {
@@ -258,11 +267,13 @@ func (s *Server) handleSendYouTubeChatMessage(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := sendYouTubeChatMessage(r.Context(), sess.AccessToken, req.LiveChatID, message); err != nil {
+	sent, err := sendYouTubeChatMessage(r.Context(), sess.AccessToken, req.LiveChatID, message)
+	if err != nil {
 		writeYouTubeError(w, err, http.StatusBadGateway)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sent)
 }
 
 type youtubeBanRequestDTO struct {
@@ -344,21 +355,27 @@ type youtubeChatMessageDTO struct {
 	Timestamp    int64  `json:"timestamp"`
 }
 
-// handleYouTubeChatStream opens a liveChatMessages.streamList gRPC
-// stream and relays text messages to the browser as server-sent
-// events. Unlike liveChatMessages.list, streamList is push-based —
-// YouTube holds the connection open and sends new messages as they're
-// posted — so, unlike the old REST-polling implementation, this handler
-// doesn't own a polling loop; relayYouTubeChatStream (youtube_stream.go)
-// blocks for as long as the gRPC stream stays healthy, and this handler
-// just reconnects it (refreshing the session first, since a viewer
-// could easily keep a tab open longer than a ~1 hour access token's
-// lifetime) whenever it ends.
+// youtubeStreamErrorDTO is the payload of a "streamError" SSE event.
+// Fatal means the server has stopped retrying and is closing the
+// response, so the browser must not reconnect.
+type youtubeStreamErrorDTO struct {
+	Message string `json:"message"`
+	Fatal   bool   `json:"fatal"`
+}
+
+// handleYouTubeChatStream relays a live chat to the browser as
+// server-sent events. It doesn't talk to YouTube itself: it subscribes
+// to the shared youtubeChatHub for the chat (youtube_chat_hub.go), which
+// holds one liveChatMessages.streamList call open for every tab watching
+// that chat, replays its recent backlog to this tab, then forwards new
+// events as they arrive.
 func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request) {
 	if s.youtubeSessionFromRequest(r) == nil {
 		http.Error(w, "not authenticated", http.StatusUnauthorized)
 		return
 	}
+	// youtubeSessionFromRequest succeeding means the cookie is present.
+	cookie, _ := r.Cookie(youtubeSessionCookieName)
 
 	liveChatID := strings.TrimSpace(r.URL.Query().Get("liveChatId"))
 	if liveChatID == "" {
@@ -372,60 +389,52 @@ func (s *Server) handleYouTubeChatStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	client, err := s.youtubeChatServiceClient()
+	hub, sub, replay, err := s.subscribeYouTubeChat(liveChatID, cookie.Value)
 	if err != nil {
 		http.Error(w, "could not reach youtube", http.StatusBadGateway)
 		return
 	}
+	defer hub.unsubscribe(sub)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+	for _, ev := range replay {
+		ev.writeTo(w)
+	}
 	flusher.Flush()
 
+	// streamList only pushes when there's something to say, so without
+	// this an idle chat could leave the connection looking dead to a
+	// proxy sitting between us and the browser.
+	keepalive := time.NewTicker(youtubeStreamKeepaliveInterval)
+	defer keepalive.Stop()
+
 	ctx := r.Context()
-	pageToken := ""
-
 	for {
-		sess := s.youtubeSessionFromRequest(r)
-		if sess == nil {
-			// Refresh failed (e.g. access revoked) or the cookie is
-			// gone; nothing more we can do for this stream.
-			return
-		}
-
-		err := s.relayYouTubeChatStream(ctx, client, sess.AccessToken, liveChatID, &pageToken, w, flusher)
-		if err == nil {
-			// Request context was cancelled — the viewer closed the tab.
-			return
-		}
-		if youtubeStreamErrTerminal(err) {
-			// Chat ended, access revoked, or the ID is no longer valid —
-			// no point retrying indefinitely.
-			// Named "streamError", not "error" — EventSource fires its
-			// own native "error" event on connection trouble, and
-			// listening for both under the same name would make a
-			// business-logic error (e.g. chat ended) look like a dropped
-			// connection to the browser.
-			st, _ := status.FromError(err)
-			fmt.Fprintf(w, "event: streamError\ndata: %s\n\n", mustJSON(map[string]string{"message": st.Message()}))
-			flusher.Flush()
-			return
-		}
-
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(youtubeStreamReconnectDelay):
+		case <-keepalive.C:
+			w.Write([]byte(": keepalive\n\n"))
+			flusher.Flush()
+		case ev, ok := <-sub.ch:
+			if !ok {
+				// The hub stopped relaying to this tab. If it ended with
+				// a fatal error, pass it on — named "streamError", not
+				// "error", since EventSource fires its own native "error"
+				// on connection trouble. Otherwise (this tab fell behind)
+				// just end the response: EventSource reconnects and
+				// catches up from the backlog.
+				if final := hub.finalEvent(); final != nil {
+					final.writeTo(w)
+					flusher.Flush()
+				}
+				return
+			}
+			ev.writeTo(w)
+			flusher.Flush()
 		}
 	}
-}
-
-func mustJSON(v any) []byte {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return []byte("{}")
-	}
-	return data
 }

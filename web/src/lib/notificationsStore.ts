@@ -7,11 +7,12 @@ export type PlatformNotificationKind =
   | "giftsub"
   | "watchstreak"
   | "kicksgifted"
-  | "cheer";
+  | "cheer"
+  | "raid";
 
 /** One "money/support" event — a sub, gift, watch streak, Kicks spend,
- * or Bits cheer — from any connected platform, combined into a single
- * feed
+ * Bits cheer, or incoming raid — from any connected platform, combined
+ * into a single feed
  * (see NotificationsPanel) instead of interleaved into that platform's
  * own chat log. Platform-specific hooks (useChatStream,
  * useKickChatStream) format `text` themselves and hand it to
