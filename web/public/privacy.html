@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Multi-Stream Moderation</title>
+    <script>
+      // Matches the theme the main app is already using, so this page
+      // doesn't jump between light/dark when a viewer follows the link
+      // from the connect screen and back.
+      (function () {
+        try {
+          var stored = localStorage.getItem("msm.theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          // Storage disabled/unavailable: fall back to the CSS default.
+        }
+      })();
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted-fg: #666666;
+        --border: #dddddd;
+        --card-bg: #ffffff;
+        --link: #9146ff;
+      }
+
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #14161a;
+        --fg: #e8e8e8;
+        --muted-fg: #a3a3a3;
+        --border: #33363c;
+        --card-bg: #1c1f24;
+        --link: #b98bff;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+        line-height: 1.6;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 5rem;
+      }
+
+      a {
+        color: var(--link);
+      }
+
+      h1 {
+        margin-bottom: 0.25rem;
+      }
+
+      .updated {
+        color: var(--muted-fg);
+        font-size: 0.9rem;
+        margin-top: 0;
+        margin-bottom: 2.5rem;
+      }
+
+      h2 {
+        margin-top: 2.5rem;
+        border-top: 1px solid var(--border);
+        padding-top: 1.5rem;
+      }
+
+      ul {
+        padding-left: 1.4rem;
+      }
+
+      li {
+        margin: 0.35rem 0;
+      }
+
+      .callout {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back-link" href="/">&larr; Back to Multi-Stream Moderation</a>
+
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: September 5, 2026</p>
+
+      <p>
+        Multi-Stream Moderation ("the application") is a chat-moderation
+        tool that lets a streamer or moderator connect their Twitch, Kick,
+        and/or YouTube accounts to view and moderate live chat from one
+        place. This policy explains what data the application accesses
+        when you connect an account, how that data is used and stored,
+        and how you can revoke access at any time.
+      </p>
+      <p>
+        This application is self-hosted: it runs on infrastructure that
+        the person or organization operating it controls, rather than a
+        service run centrally by its developer. If you're using an
+        instance someone else set up for you, they are the operator of
+        that instance and this policy describes how the application
+        itself behaves; direct data-specific questions to them, or to the
+        contact below if you're unsure who that is.
+      </p>
+
+      <h2>Information the application accesses</h2>
+      <p>When you connect an account, the application requests:</p>
+      <ul>
+        <li>
+          <strong>YouTube / Google:</strong> your channel ID, channel
+          name, and profile image (to identify you and show your
+          connected account), an OAuth access token and refresh token
+          scoped to
+          <code>https://www.googleapis.com/auth/youtube.force-ssl</code>,
+          the live chat messages of a broadcast you choose to open, and
+          the ability to post messages, delete messages, and time out or
+          ban chatters in that live chat on your behalf.
+        </li>
+        <li>
+          <strong>Twitch:</strong> your Twitch user ID, login, display
+          name, and profile image, an OAuth access token and refresh
+          token, the chat messages of channels you moderate or choose to
+          view, and the ability to send messages and take moderation
+          actions on your behalf.
+        </li>
+        <li>
+          <strong>Kick:</strong> your Kick user ID, username, and profile
+          image, an OAuth access token and refresh token, the chat
+          messages of channels you moderate or choose to view, and the
+          ability to send messages and take moderation actions on your
+          behalf.
+        </li>
+      </ul>
+      <p>
+        The application only requests the access it needs to display chat
+        and carry out the moderation actions (delete, timeout, ban, send
+        message) it offers — it does not read email, uploads, subscriber
+        lists, watch history, or anything else outside live chat.
+      </p>
+
+      <h2>How this information is used</h2>
+      <ul>
+        <li>To show you which account(s) you're connected as.</li>
+        <li>To display live chat from the channel or broadcast you pick.</li>
+        <li>
+          To carry out moderation actions you explicitly trigger (delete
+          a message, time out or ban a chatter) and to send messages you
+          compose, all performed as you, using your own access token.
+        </li>
+        <li>
+          To keep you signed in between visits, and to refresh an expired
+          access token automatically using the stored refresh token.
+        </li>
+      </ul>
+      <p>
+        Chat messages are relayed to your browser in real time to display
+        them and are not written to any database or log — the application
+        keeps no history of chat content once a session ends.
+      </p>
+
+      <h2>Google user data and the Limited Use policy</h2>
+      <div class="callout">
+        <p>
+          Multi-Stream Moderation's use and transfer of information
+          received from Google APIs will adhere to the
+          <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer"
+            >Google API Services User Data Policy</a
+          >, including the Limited Use requirements.
+        </p>
+      </div>
+      <p>
+        Concretely: data obtained through the YouTube Data API is used
+        only to provide and improve the live-chat viewing and moderation
+        features described above. It is never sold, never used for
+        advertising or ad targeting (by the application or anyone else),
+        and never shared with third parties except where necessary to
+        operate the feature itself (i.e. calls to YouTube's own API) or
+        where required by law.
+      </p>
+
+      <h2>Where data is stored</h2>
+      <ul>
+        <li>
+          Your browser only ever holds an opaque, random session token in
+          an <code>HttpOnly</code> cookie — it never receives your actual
+          Google/Twitch/Kick access or refresh tokens directly.
+        </li>
+        <li>
+          On the server, your profile info and OAuth tokens are held in
+          memory, and — if the operator has configured persistent
+          sessions — encrypted at rest (AES-256) in a local file so you
+          don't have to reauthorize every time the server restarts.
+        </li>
+        <li>
+          Chat message content is never persisted to disk or to any
+          database; it exists only transiently while being relayed from
+          the platform to your open browser tab.
+        </li>
+      </ul>
+
+      <h2>Revoking access and deleting your data</h2>
+      <p>You can disconnect at any time, in any of these ways:</p>
+      <ul>
+        <li>
+          Use the "disconnect" / logout option in the application itself,
+          which deletes your stored session and tokens from the server
+          immediately.
+        </li>
+        <li>
+          Revoke the application's access directly from your account's
+          own permissions page:
+          <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer"
+            >Google Account permissions</a
+          >
+          for YouTube,
+          <a href="https://www.twitch.tv/settings/connections" target="_blank" rel="noopener noreferrer"
+            >Twitch connections settings</a
+          >
+          , or
+          <a href="https://kick.com/settings/security" target="_blank" rel="noopener noreferrer"
+            >Kick security settings</a
+          >. This immediately invalidates the tokens the application was
+          holding, even if you can't reach the application itself.
+        </li>
+      </ul>
+
+      <h2>Children's privacy</h2>
+      <p>
+        This application is a tool for streamers and moderators and is
+        not directed at children. It does not knowingly collect
+        information from anyone under the age required by each connected
+        platform's own terms of service.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If how the application handles data changes materially, this page
+        will be updated and the "Last updated" date above will change
+        accordingly.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy or about your data can be sent to
+        <a href="mailto:danotchuuy@gmail.com">danotchuuy@gmail.com</a>.
+      </p>
+    </main>
+  </body>
+</html>
