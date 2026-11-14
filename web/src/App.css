@@ -1,0 +1,1212 @@
+.app {
+  max-width: 1600px;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  position: relative;
+}
+
+.app-header h1 {
+  margin: 0;
+}
+
+.theme-toggle {
+  position: absolute;
+  right: 0;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--muted-fg);
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .theme-toggle {
+    position: static;
+  }
+
+  /* No chat-panel override needed here: the stacked header above adds
+     a row, but .app's margin also shrinks from 4rem to 2rem on this
+     same breakpoint (see the other max-width: 640px block below),
+     which roughly cancels out — the base max-height's chrome estimate
+     already covers both changes. */
+}
+
+.panels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.5rem;
+  text-align: left;
+}
+
+/* Sized so all three chat panels fit on one row alongside
+   notifications-panel within .app's 1600px max-width: 3 * 340px + 260px
+   + 3 gaps of 1.5rem (72px) = ~1352px, comfortably under the ~1552px
+   available (1600px minus .app's own left/right padding). */
+.platform-panel {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+/* Narrower than a full chat panel — it only ever holds short notice
+   lines, never a message composer — and ordered first by source order
+   in App.tsx so it lands on the far left. */
+.notifications-panel {
+  flex: 1 1 260px;
+  max-width: 300px;
+}
+
+/* A minimized panel shows only its header — shrink it to that header's
+   own content width (rather than keeping its usual flex-basis) so the
+   space it would otherwise hold open gets redistributed to the other,
+   still-expanded panels on the same row via their flex-grow. Placed
+   after .platform-panel/.notifications-panel so it wins the (equal
+   specificity) cascade regardless of which of those a given panel also
+   carries. */
+.platform-panel-minimized {
+  flex: 0 0 auto;
+}
+
+.platform-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.platform-panel-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  background: var(--card-bg);
+}
+
+.error {
+  color: var(--error);
+}
+
+.button,
+.manual-channel-row button,
+.channel-button {
+  display: inline-block;
+  background: #9146ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover,
+.manual-channel-row button:hover:not(:disabled),
+.channel-button:hover {
+  background: #7c2ff2;
+}
+
+.manual-channel-row button:disabled {
+  background: #c9b3f5;
+  cursor: not-allowed;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: #9146ff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.picker-header p {
+  margin: 0 0 0.25rem;
+}
+
+.channel-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.manual-channel label {
+  display: block;
+  margin-top: 1rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--muted-fg);
+}
+
+.manual-channel-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.manual-channel-row input {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 1rem;
+  background: var(--control-bg);
+  color: var(--control-fg);
+}
+
+.chat-panel {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  /* Bounds the whole panel (header + log + composer) to fit within the
+     browser window. Without this, chat-log's own fixed height could
+     push the composer below the visible area on a short window,
+     leaving it needing a page scroll to reach rather than always
+     staying in view.
+
+     The subtracted amount has to cover everything else on the page
+     that eats into that 100vh, or the panel still ends up slightly
+     taller than the actual space left and the whole page grows a
+     scrollbar: .app's top *and* bottom margin (4rem + 4rem — easy to
+     forget the bottom one, since it comes after the panel, not
+     before), .app-header's rendered height (~3rem), and .card's own
+     margin-top (1.5rem). That's ~12.5rem of chrome; 13rem leaves a
+     little slack. */
+  max-height: calc(100vh - 13rem);
+}
+
+.notifications-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.notifications-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+
+.notifications-filter input {
+  cursor: pointer;
+}
+
+.notifications-settings {
+  padding-top: 0.5rem;
+  margin-top: -0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.chat-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.chat-header h2 {
+  margin: 0 0 0.25rem;
+}
+
+.status {
+  font-size: 0.8rem;
+  color: var(--faint-fg);
+}
+
+.status.connected {
+  color: var(--success);
+}
+
+.chat-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  /* Fills whatever space is left in chat-panel's viewport-bounded
+     max-height after the header/composer take theirs, so the log
+     stays a constant size as messages arrive/scroll off (rather than
+     growing and shrinking with however much content currently fits)
+     without ever pushing the composer out of view. min-height: 0
+     overrides flexbox's default "never shrink below content size" so
+     overflow-y can actually kick in instead of the panel just growing
+     past its own max-height. */
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chat-log li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+/* Deliberately not :nth-child(odd) — the log is a sliding window
+   (oldest message dropped as new ones arrive past the cap), so a
+   message's DOM position shifts by one on every single new message
+   once that cap is hit, flipping every row's :nth-child parity (and
+   so its stripe) on every message. .chat-row-alt is driven by each
+   message's own stamped arrival order instead (see DisplayMessage.seq
+   in useChatStream.ts), which never changes once assigned. */
+.chat-log li.chat-row-alt {
+  background: var(--stripe-bg);
+}
+
+/* Highlights a Twitch "chat intro" message's whole row — the closest
+   signal EventSub exposes to a first-time chatter (see FirstMessage in
+   internal/server/handlers_chat.go). Placed after .chat-row-alt so it
+   wins the (equal-specificity) cascade over the alternating stripe. */
+.chat-log li.chat-firstmsg {
+  background: var(--first-chat-bg);
+  border-left: 3px solid var(--first-chat-fg);
+  padding-left: calc(0.5rem - 3px);
+}
+
+/* flex-basis: 100% forces this to claim its own line in the row's
+   flex-wrap: wrap container (see .chat-log li), pushing the badges/
+   username/text that follow it onto the next line instead of widening
+   the row to fit them all on one. */
+.chat-timestamp {
+  flex: 0 0 100%;
+  color: var(--faint-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75em;
+  margin-bottom: 0.15rem;
+}
+
+.chat-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-right: 0.35rem;
+}
+
+.chat-badge {
+  display: inline-flex;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: default;
+}
+
+.chat-badge-image {
+  width: 1.1rem;
+  height: 1.1rem;
+  vertical-align: middle;
+}
+
+.chat-user {
+  font-weight: 600;
+  margin-right: 0.4rem;
+}
+
+.chat-user-button {
+  /* Reset button chrome so a moderator's clickable username still
+     looks like plain text, not a form control. */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-user-button:hover,
+.chat-user-button:focus-visible {
+  text-decoration: underline;
+}
+
+.chat-text {
+  flex: 1;
+}
+
+.chat-emote {
+  height: 1.6em;
+  width: auto;
+  vertical-align: middle;
+  margin: -0.2em 0.05em;
+}
+
+.chat-gif {
+  display: inline-block;
+  max-height: 112px;
+  max-width: 200px;
+  width: auto;
+  height: auto;
+  vertical-align: middle;
+  border-radius: 6px;
+  margin: 2px 4px;
+}
+
+.chat-empty {
+  color: var(--faint-fg);
+  font-style: italic;
+}
+
+.chat-deleted .chat-text {
+  color: var(--faint-fg);
+  font-style: italic;
+}
+
+.chat-system {
+  color: var(--faint-fg);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.chat-log li.chat-raid {
+  background: var(--raid-bg);
+  border: 1px solid var(--raid-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-giftsub {
+  background: var(--giftsub-bg);
+  border: 1px solid var(--giftsub-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-sub {
+  background: var(--sub-bg);
+  border: 1px solid var(--sub-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-watchstreak {
+  background: var(--watchstreak-bg);
+  border: 1px solid var(--watchstreak-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-cheer {
+  background: var(--cheer-bg);
+  border: 1px solid var(--cheer-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-kicksgifted {
+  background: var(--kicksgifted-bg);
+  border: 1px solid var(--kicksgifted-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-log li.chat-superchat {
+  background: var(--superchat-bg);
+  border: 1px solid var(--superchat-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-tag-superchat {
+  background: var(--superchat-border);
+  color: #fff;
+  margin-right: 0.35rem;
+}
+
+[data-theme="dark"] .chat-tag-superchat {
+  color: #0a0a0a;
+}
+
+.chat-reply-context {
+  /* Forces its own line at the top of the (flex-wrap) message row,
+     rather than sitting inline before the badges/username/text. */
+  flex: 1 0 100%;
+  order: -1;
+  font-size: 0.78rem;
+  color: var(--muted-fg);
+  word-break: break-word;
+}
+
+.chat-reply-context strong {
+  color: var(--control-fg);
+}
+
+.chat-reply-button {
+  margin-left: 0.5rem;
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+
+/* Only reveal the reply icon while hovering (or keyboard-focusing) its
+   own message row, rather than always showing it and cluttering a fast
+   -moving chat log. */
+.chat-log li:hover .chat-reply-button,
+.chat-reply-button:focus-visible {
+  opacity: 1;
+}
+
+.chat-reply-button:hover {
+  color: #9146ff;
+}
+
+.kick-panel .chat-reply-button:hover {
+  color: #2e9c00;
+}
+
+.chat-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  margin-right: 0.4rem;
+  white-space: nowrap;
+}
+
+.chat-tag-first {
+  background: var(--first-chat-bg);
+  color: var(--first-chat-fg);
+}
+
+/* Marks a Twitch Shared Chat message typed in another participant's
+   channel. --source-hue is set per row from the channel's login (see
+   channelHue in ChatPanel.tsx), so each channel keeps its own color. */
+/* Like .chat-timestamp, claims its own line in the (flex-wrap) message
+   row, so the channel tag sits directly above the badges/username
+   rather than inline beside them. A wrapper rather than the tag itself
+   so the pill keeps its own width instead of stretching to the row's. */
+.chat-source-line {
+  flex: 0 0 100%;
+  margin-bottom: 0.15rem;
+}
+
+.chat-tag-source {
+  background: hsl(var(--source-hue) 70% 90%);
+  color: hsl(var(--source-hue) 65% 30%);
+  text-transform: none;
+}
+
+[data-theme="dark"] .chat-tag-source {
+  background: hsl(var(--source-hue) 45% 22%);
+  color: hsl(var(--source-hue) 75% 75%);
+}
+
+/* Placed after .chat-row-alt and .chat-firstmsg so the channel-colored
+   left stripe wins the cascade; a shared chat intro keeps its green
+   background (and "intro" tag) but takes the channel's stripe. */
+.chat-log li.chat-shared {
+  border-left: 3px solid hsl(var(--source-hue) 65% 50%);
+  padding-left: calc(0.5rem - 3px);
+}
+
+.mod-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  /* Appears between the username (which reveals it on click) and the
+     message text, so it needs breathing room on both sides. */
+  margin: 0 0.5rem;
+}
+
+.mod-button,
+.mod-select {
+  font-size: 0.85rem;
+  line-height: 1.2;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--control-bg);
+  color: var(--control-fg);
+  cursor: pointer;
+}
+
+.mod-button:hover:not(:disabled),
+.mod-select:hover:not(:disabled) {
+  border-color: #9146ff;
+  color: #9146ff;
+}
+
+.mod-button-danger {
+  color: var(--error);
+  border-color: var(--error-border);
+}
+
+.mod-button-danger:hover:not(:disabled) {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.mod-button:disabled,
+.mod-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mod-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-composer {
+  margin-top: 0.75rem;
+  flex-shrink: 0;
+}
+
+.chat-composer-reply {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  word-break: break-word;
+}
+
+.chat-composer-reply strong {
+  color: var(--control-fg);
+}
+
+.chat-composer-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-composer-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 1rem;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 4.5em;
+}
+
+.chat-composer-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--faint-fg);
+  pointer-events: none;
+}
+
+.composer-emote {
+  height: 1.3em;
+}
+
+.chat-composer-send {
+  padding: 0.5rem 1.2rem;
+  font-size: 0.9rem;
+}
+
+.chat-composer-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.emote-picker {
+  position: relative;
+}
+
+.emote-picker-toggle {
+  padding: 0.5rem 0.6rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--control-fg);
+  cursor: pointer;
+}
+
+.emote-picker-toggle:hover {
+  background: var(--border-soft);
+}
+
+.emote-picker-panel {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  right: 0;
+  width: 300px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--control-bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.emote-picker-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--control-fg);
+}
+
+.emote-picker-status {
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  text-align: center;
+}
+
+.emote-picker-error {
+  color: var(--danger, #d9534f);
+}
+
+.emote-picker-category + .emote-picker-category {
+  margin-top: 0.6rem;
+}
+
+.emote-picker-category-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.emote-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25rem;
+}
+
+.emote-picker-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.emote-picker-item:hover {
+  background: var(--border-soft);
+}
+
+.emote-picker-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.emote-picker-lock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 0.6rem;
+  line-height: 1;
+}
+
+.channel-info-toggle {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+
+.channel-info-panel {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: var(--stripe-bg);
+}
+
+.channel-info-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.channel-info-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+  position: relative;
+}
+
+.channel-info-field input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: var(--control-bg);
+  color: var(--control-fg);
+}
+
+.category-options {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--card-bg);
+}
+
+.category-options li + li {
+  border-top: 1px solid var(--border-soft);
+}
+
+.category-options button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  background: none;
+  color: var(--control-fg);
+  text-align: left;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.category-options button:hover {
+  background: var(--stripe-bg);
+}
+
+.category-options img {
+  width: 24px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.channel-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: var(--muted-fg);
+}
+
+.spam-panel {
+  margin-top: 1rem;
+  border-color: var(--spam-border);
+  background: var(--spam-bg);
+}
+
+.spam-group-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.spam-group {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  background: var(--card-bg);
+}
+
+.spam-group-text {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.spam-group-meta {
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+  margin: 0.15rem 0 0.4rem;
+}
+
+.spam-group-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.spam-group-user {
+  font-size: 0.75rem;
+  background: var(--chip-bg);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+}
+
+.automod-panel {
+  margin-top: 1rem;
+  border-color: var(--automod-border);
+  background: var(--automod-bg);
+}
+
+.automod-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.automod-item {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  background: var(--card-bg);
+}
+
+.automod-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.automod-reason {
+  font-size: 0.75rem;
+  color: var(--muted-fg);
+}
+
+.automod-timestamp {
+  margin-left: auto;
+  color: var(--faint-fg);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+
+.automod-item-text {
+  word-break: break-word;
+  margin-bottom: 0.5rem;
+}
+
+.platform-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+/* Kick's brand accent (green) in place of Twitch's purple, so the two
+   panels are distinguishable at a glance. */
+.kick-badge {
+  background: #53fc18;
+  color: #0a0a0a;
+}
+
+/* Twitch's own brand purple — used in the combined notifications panel
+   to tell a Twitch notice from a Kick one at a glance, the same way
+   kick-badge already does for Kick's own chat header. */
+.twitch-badge {
+  background: #9146ff;
+  color: #fff;
+}
+
+.kick-panel .button,
+.kick-panel .channel-button,
+.kick-panel .manual-channel-row button {
+  background: #53fc18;
+  color: #0a0a0a;
+}
+
+.kick-panel .button:hover,
+.kick-panel .channel-button:hover,
+.kick-panel .manual-channel-row button:hover:not(:disabled) {
+  background: #3fd400;
+}
+
+.kick-panel .manual-channel-row button:disabled {
+  background: #bdf5a0;
+  color: var(--muted-fg);
+}
+
+.kick-panel .link-button {
+  color: #2e9c00;
+}
+
+.kick-panel .mod-button:hover:not(:disabled),
+.kick-panel .mod-select:hover:not(:disabled) {
+  border-color: #3fd400;
+  color: #2e9c00;
+}
+
+/* YouTube's brand accent (red), for the third panel. */
+.youtube-badge {
+  background: #ff0000;
+  color: #fff;
+}
+
+.youtube-panel .button,
+.youtube-panel .channel-button,
+.youtube-panel .manual-channel-row button {
+  background: #ff0000;
+  color: #fff;
+}
+
+.youtube-panel .button:hover,
+.youtube-panel .channel-button:hover,
+.youtube-panel .manual-channel-row button:hover:not(:disabled) {
+  background: #cc0000;
+}
+
+.youtube-panel .manual-channel-row button:disabled {
+  background: #f5a3a3;
+  color: #fff;
+}
+
+.youtube-panel .link-button {
+  color: #cc0000;
+}
+
+.youtube-privacy-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+}
+
+.youtube-panel .mod-button:hover:not(:disabled),
+.youtube-panel .mod-select:hover:not(:disabled) {
+  border-color: #cc0000;
+  color: #cc0000;
+}
+
+@media (max-width: 640px) {
+  .app {
+    margin: 2rem auto;
+  }
+}
+
+/* Undo toasts (UndoToasts.tsx): stacked bottom-right, above the panels. */
+.undo-toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: calc(100vw - 2rem);
+}
+
+.undo-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--fg);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  font-size: 0.9rem;
+}
+
+.undo-toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.undo-toast-button {
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--control-bg);
+  color: var(--control-fg);
+  cursor: pointer;
+}
+
+.undo-toast-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.undo-toast-dismiss {
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* User card (UserCard.tsx): expands under the clicked message, taking a
+   full line of the flex-wrap message row. */
+.user-card {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  font-style: normal;
+  font-size: 0.85rem;
+}
+
+.user-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.user-card-avatar {
+  border-radius: 50%;
+}
+
+.user-card-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-card-meta {
+  color: var(--muted-fg);
+  font-size: 0.8rem;
+}
+
+.user-card-close {
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.user-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.user-card-actions .mod-controls {
+  margin: 0;
+}
+
+.user-card-section h4 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted-fg);
+}
+
+.user-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 10rem;
+  overflow-y: auto;
+}
+
+/* Overrides the flex row layout .chat-log li gives every message row,
+   which these nested items would otherwise inherit. */
+.user-card-list li {
+  display: block;
+  padding: 0.1rem 0;
+  background: none;
+  word-break: break-word;
+}
+
+.user-card-list .chat-timestamp {
+  margin-right: 0.4rem;
+}
+
+.user-card-empty {
+  margin: 0;
+  color: var(--faint-fg);
+}
+
+.user-card-undone {
+  color: var(--faint-fg);
+  text-decoration: line-through;
+}

@@ -1,0 +1,187 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
+// resolveBroadcasterID looks up the numeric channel ID for a login name,
+// as required by Twitch's moderation endpoints. Results are cached on
+// the Server for the process lifetime since a channel's ID never
+// changes.
+func (s *Server) resolveBroadcasterID(ctx context.Context, clientID, accessToken, login string) (string, error) {
+	login = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(login), "#"))
+
+	s.channelIDsMu.Lock()
+	if id, ok := s.channelIDs[login]; ok {
+		s.channelIDsMu.Unlock()
+		return id, nil
+	}
+	s.channelIDsMu.Unlock()
+
+	var out struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := twitchAPIGet(ctx, clientID, accessToken, "/users", url.Values{"login": {login}}, &out); err != nil {
+		return "", err
+	}
+	if len(out.Data) == 0 {
+		return "", fmt.Errorf("twitch: channel %q not found", login)
+	}
+	id := out.Data[0].ID
+
+	s.channelIDsMu.Lock()
+	s.channelIDs[login] = id
+	s.channelIDsMu.Unlock()
+
+	return id, nil
+}
+
+// deleteChatMessage removes a single chat message. moderatorID must be
+// the authenticated user's own ID; Twitch checks that they're actually a
+// moderator (or the broadcaster) of broadcasterID.
+// https://dev.twitch.tv/docs/api/reference/#delete-chat-messages
+func deleteChatMessage(ctx context.Context, clientID, accessToken, broadcasterID, moderatorID, messageID string) error {
+	params := url.Values{
+		"broadcaster_id": {broadcasterID},
+		"moderator_id":   {moderatorID},
+		"message_id":     {messageID},
+	}
+	endpoint := twitchAPIBase + "/moderation/chat?" + params.Encode()
+	return twitchAPIRequest(ctx, http.MethodDelete, endpoint, clientID, accessToken, nil, nil)
+}
+
+// banUserRequest is the Ban Users request body. Unlike most Helix
+// endpoints, "data" here is a single object, not an array — sending an
+// array (as if batching) silently drops user_id from Twitch's point of
+// view, surfacing as `Missing required parameter "user_id"`.
+type banUserRequest struct {
+	Data banUserEntry `json:"data"`
+}
+
+type banUserEntry struct {
+	UserID   string `json:"user_id"`
+	Duration int    `json:"duration,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// sendChatMessageRequest is the Send Chat Message request body.
+type sendChatMessageRequest struct {
+	BroadcasterID string `json:"broadcaster_id"`
+	SenderID      string `json:"sender_id"`
+	Message       string `json:"message"`
+	// ReplyParentMessageID threads Message under an earlier one, the
+	// same way replying in Twitch's own chat UI does. Omitted for an
+	// ordinary, non-reply message.
+	ReplyParentMessageID string `json:"reply_parent_message_id,omitempty"`
+}
+
+type sendChatMessageResult struct {
+	MessageID  string `json:"message_id"`
+	IsSent     bool   `json:"is_sent"`
+	DropReason *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"drop_reason"`
+}
+
+// sendChatMessage posts a message to broadcasterID's chat, sent as
+// senderID — the authenticated caller themselves, since a user token has
+// no way to send "as the channel". replyParentMessageID, if non-empty,
+// threads the new message as a reply to that earlier message ID. A 2xx
+// response doesn't guarantee delivery: Twitch can still silently drop
+// the message (e.g. AutoMod), reported via is_sent/drop_reason rather
+// than an error status, so that's translated into an error here too.
+// https://dev.twitch.tv/docs/api/reference/#send-chat-message
+func sendChatMessage(ctx context.Context, clientID, accessToken, broadcasterID, senderID, message, replyParentMessageID string) error {
+	body, err := json.Marshal(sendChatMessageRequest{
+		BroadcasterID:        broadcasterID,
+		SenderID:             senderID,
+		Message:              message,
+		ReplyParentMessageID: replyParentMessageID,
+	})
+	if err != nil {
+		return err
+	}
+
+	var out struct {
+		Data []sendChatMessageResult `json:"data"`
+	}
+	if err := twitchAPIRequest(ctx, http.MethodPost, twitchAPIBase+"/chat/messages", clientID, accessToken, body, &out); err != nil {
+		return err
+	}
+	if len(out.Data) > 0 && !out.Data[0].IsSent {
+		reason := "message was not delivered"
+		if out.Data[0].DropReason != nil && out.Data[0].DropReason.Message != "" {
+			reason = out.Data[0].DropReason.Message
+		}
+		return &twitchAPIError{Status: http.StatusUnprocessableEntity, Message: reason}
+	}
+	return nil
+}
+
+// banOrTimeoutUser bans userID outright, or times them out for
+// durationSeconds if it's greater than zero.
+// https://dev.twitch.tv/docs/api/reference/#ban-user
+func banOrTimeoutUser(ctx context.Context, clientID, accessToken, broadcasterID, moderatorID, userID string, durationSeconds int, reason string) error {
+	body, err := json.Marshal(banUserRequest{Data: banUserEntry{
+		UserID:   userID,
+		Duration: durationSeconds,
+		Reason:   reason,
+	}})
+	if err != nil {
+		return err
+	}
+
+	params := url.Values{
+		"broadcaster_id": {broadcasterID},
+		"moderator_id":   {moderatorID},
+	}
+	endpoint := twitchAPIBase + "/moderation/bans?" + params.Encode()
+	return twitchAPIRequest(ctx, http.MethodPost, endpoint, clientID, accessToken, body, nil)
+}
+
+// unbanUser lifts a ban or ends a timeout early — Twitch uses the same
+// endpoint for both.
+// https://dev.twitch.tv/docs/api/reference/#unban-user
+func unbanUser(ctx context.Context, clientID, accessToken, broadcasterID, moderatorID, userID string) error {
+	params := url.Values{
+		"broadcaster_id": {broadcasterID},
+		"moderator_id":   {moderatorID},
+		"user_id":        {userID},
+	}
+	endpoint := twitchAPIBase + "/moderation/bans?" + params.Encode()
+	return twitchAPIRequest(ctx, http.MethodDelete, endpoint, clientID, accessToken, nil, nil)
+}
+
+// automodResolveRequest is the Manage Held AutoMod Messages request
+// body. UserID is the moderator taking the action — Twitch requires it
+// to match the token's own user ID — not the held message's sender.
+type automodResolveRequest struct {
+	UserID string `json:"user_id"`
+	MsgID  string `json:"msg_id"`
+	Action string `json:"action"`
+}
+
+// resolveAutomodMessage approves or denies a message AutoMod is holding
+// for review, as moderatorID (the authenticated caller — Twitch has no
+// concept of a separate "broadcaster" party for this call, unlike
+// delete/ban above). action must be "ALLOW" or "DENY".
+// https://dev.twitch.tv/docs/api/reference/#manage-held-automod-messages
+func resolveAutomodMessage(ctx context.Context, clientID, accessToken, moderatorID, messageID, action string) error {
+	body, err := json.Marshal(automodResolveRequest{
+		UserID: moderatorID,
+		MsgID:  messageID,
+		Action: action,
+	})
+	if err != nil {
+		return err
+	}
+	return twitchAPIRequest(ctx, http.MethodPost, twitchAPIBase+"/moderation/automod/message", clientID, accessToken, body, nil)
+}

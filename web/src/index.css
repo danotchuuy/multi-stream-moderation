@@ -1,0 +1,88 @@
+:root {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted-fg: #666666;
+  --faint-fg: #999999;
+  --border: #dddddd;
+  --border-soft: #eeeeee;
+  --input-border: #cccccc;
+  --card-bg: #ffffff;
+  --stripe-bg: #fafafa;
+  --chip-bg: #f0f0f0;
+  --control-bg: #ffffff;
+  --control-fg: #333333;
+  --error: #c0392b;
+  --error-border: #e7b3ac;
+  --success: #2ecc71;
+  --spam-border: #e8b800;
+  --spam-bg: #fffbea;
+  --raid-border: #9146ff;
+  --raid-bg: #f3ebff;
+  --giftsub-border: #d97706;
+  --giftsub-bg: #fff3e0;
+  --sub-border: #db2777;
+  --sub-bg: #fdecf4;
+  --watchstreak-border: #dc2626;
+  --watchstreak-bg: #fdecec;
+  --cheer-border: #0891b2;
+  --cheer-bg: #e7f9fc;
+  --automod-border: #2563eb;
+  --automod-bg: #eaf1ff;
+  --kicksgifted-border: #2e9c00;
+  --kicksgifted-bg: #eafce6;
+  --superchat-border: #1e88e5;
+  --superchat-bg: #e8f2fd;
+  --first-chat-fg: #0a6e0a;
+  --first-chat-bg: #e3f7e3;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #14161a;
+  --fg: #e8e8e8;
+  --muted-fg: #a3a3a3;
+  --faint-fg: #8a8a8a;
+  --border: #33363c;
+  --border-soft: #2a2c31;
+  --input-border: #44474e;
+  --card-bg: #1c1f24;
+  --stripe-bg: #22252a;
+  --chip-bg: #2a2d33;
+  --control-bg: #22252a;
+  --control-fg: #e8e8e8;
+  --error: #ff6b5b;
+  --error-border: #6b2f28;
+  --success: #38d982;
+  --spam-border: #a8860a;
+  --spam-bg: #2a2413;
+  --raid-border: #9146ff;
+  --raid-bg: #241a35;
+  --giftsub-border: #d97706;
+  --giftsub-bg: #33230e;
+  --sub-border: #ec4899;
+  --sub-bg: #37172a;
+  --watchstreak-border: #f87171;
+  --watchstreak-bg: #3a1414;
+  --cheer-border: #22d3ee;
+  --cheer-bg: #0e2e35;
+  --automod-border: #3b82f6;
+  --automod-bg: #16233d;
+  --kicksgifted-border: #3fbf3f;
+  --kicksgifted-bg: #163a16;
+  --superchat-border: #64b5f6;
+  --superchat-bg: #13263b;
+  --first-chat-fg: #6fe36f;
+  --first-chat-bg: #16301a;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}

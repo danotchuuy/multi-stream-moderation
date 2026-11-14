@@ -1,0 +1,87 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+)
+
+// deleteKickChatMessage removes a single chat message. Unlike Twitch,
+// Kick identifies the target purely by message ID in the URL path — no
+// broadcaster/moderator IDs needed, since the caller's own token
+// establishes both.
+// https://docs.kick.com/apis/chat#delete-chat-message
+func deleteKickChatMessage(ctx context.Context, accessToken, messageID string) error {
+	endpoint := kickAPIBase + "/chat/" + messageID
+	return kickAPIRequest(ctx, http.MethodDelete, endpoint, accessToken, nil, nil)
+}
+
+type kickSendChatMessageRequest struct {
+	BroadcasterUserID int64  `json:"broadcaster_user_id"`
+	Content           string `json:"content"`
+	Type              string `json:"type"`
+	// ReplyToMessageID threads Content under an earlier message, the
+	// same way replying in Kick's own chat UI does. Omitted for an
+	// ordinary, non-reply message.
+	ReplyToMessageID string `json:"reply_to_message_id,omitempty"`
+}
+
+// sendKickChatMessage posts a new chat message to broadcasterUserID's
+// channel, sent as the signed-in user (type "user"); Kick's "bot" type is
+// for app-level tokens with no specific channel, which doesn't fit this
+// app's per-user OAuth model. replyToMessageID, if non-empty, threads
+// the new message as a reply to that earlier message ID.
+// https://docs.kick.com/apis/chat#send-chat-message
+func sendKickChatMessage(ctx context.Context, accessToken string, broadcasterUserID int64, content, replyToMessageID string) error {
+	body, err := json.Marshal(kickSendChatMessageRequest{
+		BroadcasterUserID: broadcasterUserID,
+		Content:           content,
+		Type:              "user",
+		ReplyToMessageID:  replyToMessageID,
+	})
+	if err != nil {
+		return err
+	}
+	return kickAPIRequest(ctx, http.MethodPost, kickAPIBase+"/chat", accessToken, body, nil)
+}
+
+type kickBanRequest struct {
+	BroadcasterUserID int64  `json:"broadcaster_user_id"`
+	UserID            int64  `json:"user_id"`
+	Duration          int    `json:"duration,omitempty"` // minutes, 1-10080; omitted = permanent ban
+	Reason            string `json:"reason,omitempty"`
+}
+
+// banOrTimeoutKickUser bans userID outright, or times them out for
+// durationMinutes if it's greater than zero. Note the unit: Kick's API
+// takes minutes, where Twitch's takes seconds — the HTTP handlers keep
+// each platform's native unit rather than silently converting.
+// https://docs.kick.com/apis/moderation#post-moderation-bans
+func banOrTimeoutKickUser(ctx context.Context, accessToken string, broadcasterUserID, userID int64, durationMinutes int, reason string) error {
+	body, err := json.Marshal(kickBanRequest{
+		BroadcasterUserID: broadcasterUserID,
+		UserID:            userID,
+		Duration:          durationMinutes,
+		Reason:            reason,
+	})
+	if err != nil {
+		return err
+	}
+	return kickAPIRequest(ctx, http.MethodPost, kickAPIBase+"/moderation/bans", accessToken, body, nil)
+}
+
+type kickUnbanRequest struct {
+	BroadcasterUserID int64 `json:"broadcaster_user_id"`
+	UserID            int64 `json:"user_id"`
+}
+
+// unbanKickUser lifts a ban or ends a timeout early — Kick uses the same
+// endpoint for both.
+// https://docs.kick.com/apis/moderation#delete-moderation-bans
+func unbanKickUser(ctx context.Context, accessToken string, broadcasterUserID, userID int64) error {
+	body, err := json.Marshal(kickUnbanRequest{BroadcasterUserID: broadcasterUserID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	return kickAPIRequest(ctx, http.MethodDelete, kickAPIBase+"/moderation/bans", accessToken, body, nil)
+}
