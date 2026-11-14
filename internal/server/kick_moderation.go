@@ -69,3 +69,19 @@ func banOrTimeoutKickUser(ctx context.Context, accessToken string, broadcasterUs
 	}
 	return kickAPIRequest(ctx, http.MethodPost, kickAPIBase+"/moderation/bans", accessToken, body, nil)
 }
+
+type kickUnbanRequest struct {
+	BroadcasterUserID int64 `json:"broadcaster_user_id"`
+	UserID            int64 `json:"user_id"`
+}
+
+// unbanKickUser lifts a ban or ends a timeout early — Kick uses the same
+// endpoint for both.
+// https://docs.kick.com/apis/moderation#delete-moderation-bans
+func unbanKickUser(ctx context.Context, accessToken string, broadcasterUserID, userID int64) error {
+	body, err := json.Marshal(kickUnbanRequest{BroadcasterUserID: broadcasterUserID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	return kickAPIRequest(ctx, http.MethodDelete, kickAPIBase+"/moderation/bans", accessToken, body, nil)
+}

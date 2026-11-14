@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { banKickChatter, deleteKickChatMessage, timeoutKickChatter } from "../lib/kickApi";
+import {
+  banKickChatter,
+  deleteKickChatMessage,
+  timeoutKickChatter,
+  unbanKickChatter,
+} from "../lib/kickApi";
+import { recordBan } from "../lib/moderationActionsStore";
 
 // Kick's timeout duration is minutes (1-10080), not seconds like Twitch.
 const TIMEOUT_PRESETS: { label: string; minutes: number }[] = [
@@ -32,6 +38,8 @@ export function KickModerationControls({
   onDeleted,
 }: Props) {
   const [busy, setBusy] = useState(false);
+  const target = { platform: "kick" as const, scope: channel, userId: String(userId), username };
+  const unban = () => unbanKickChatter(channel, userId);
 
   const run = async (action: () => Promise<void>, after?: () => void) => {
     if (busy) return;
@@ -73,7 +81,11 @@ export function KickModerationControls({
           const minutes = Number(e.target.value);
           e.target.value = "";
           if (minutes > 0) {
-            run(() => timeoutKickChatter(channel, userId, minutes, username));
+            const label = TIMEOUT_PRESETS.find((p) => p.minutes === minutes)?.label;
+            run(async () => {
+              await timeoutKickChatter(channel, userId, minutes, username);
+              recordBan(target, "timeout", unban, label);
+            });
           }
         }}
       >
@@ -92,7 +104,12 @@ export function KickModerationControls({
         aria-label="Ban"
         title="Ban"
         disabled={busy}
-        onClick={() => run(() => banKickChatter(channel, userId, username))}
+        onClick={() =>
+          run(async () => {
+            await banKickChatter(channel, userId, username);
+            recordBan(target, "ban", unban);
+          })
+        }
       >
         🔨
       </button>

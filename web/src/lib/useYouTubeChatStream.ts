@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { YouTubeChatMessage } from "./youtubeApi";
+import { clearNotifications, pushNotification } from "./notificationsStore";
 
 const MAX_MESSAGES = 1000;
 
@@ -8,7 +9,10 @@ export type YouTubeDisplayMessage = YouTubeChatMessage & {
   /** Set on the synthetic notice for a gift membership / community
    * gift, distinguishing it from a real chat message. */
   system?: boolean;
-  giftSub?: boolean;
+  /** Set on a Super Chat's comment, which stays in the chat log (as
+   * well as the notifications feed) so it can still be moderated: the
+   * amount, as YouTube renders it (e.g. "$5.00"). */
+  superChat?: string;
   /** Monotonically increasing arrival order, stamped by pushCapped —
    * see the matching field on DisplayMessage in useChatStream.ts for
    * why this exists instead of using a message's position in the
@@ -24,6 +28,42 @@ type GiftSubEvent = {
   displayName: string;
   count: number;
 };
+
+/** See youtubeSuperChatDTO in internal/server/youtube_stream.go. */
+type SuperChatEvent = {
+  id: string;
+  displayName: string;
+  channelId: string;
+  amount: string;
+  comment: string;
+  sticker: boolean;
+  tier: number;
+  timestamp: number;
+};
+
+/** A new or upgraded membership, or a member milestone (months > 0).
+ * See youtubeMembershipDTO in internal/server/youtube_stream.go. */
+type MembershipEvent = {
+  id: string;
+  displayName: string;
+  channelId: string;
+  level: string;
+  upgrade?: boolean;
+  months?: number;
+  comment?: string;
+  timestamp: number;
+};
+
+function describeMembership(m: MembershipEvent): string {
+  const name = m.displayName || "Someone";
+  const level = m.level ? ` (${m.level})` : "";
+  if (m.months) {
+    const comment = m.comment ? `: ${m.comment}` : "";
+    return `${name} has been a member for ${m.months} month${m.months === 1 ? "" : "s"}${level}${comment}`;
+  }
+  if (m.upgrade) return `${name} upgraded their membership${level}`;
+  return `${name} became a member${level}`;
+}
 
 function pushCapped(
   list: YouTubeDisplayMessage[],
@@ -66,6 +106,7 @@ export function useYouTubeChatStream(
     setConnected(false);
     setEnded(false);
     setStreamError(null);
+    clearNotifications("youtube");
     if (!liveChatId) {
       return;
     }
@@ -90,26 +131,65 @@ export function useYouTubeChatStream(
       );
     });
 
+    // Gift memberships, Super Chats/Stickers and memberships go to the
+    // shared notifications feed with the other platforms' support
+    // events. Event IDs make the hub's backlog replay on reconnect
+    // harmless: pushNotification and the chat log both skip an ID
+    // they've already shown.
     source.addEventListener("giftsub", (event) => {
       const gift = JSON.parse((event as MessageEvent).data) as GiftSubEvent;
-      const notice: Omit<YouTubeDisplayMessage, "seq"> = {
-        id: `giftsub-${gift.id}`,
+      pushNotification({
+        id: `yt-giftsub-${gift.id}`,
+        platform: "youtube",
+        kind: "giftsub",
+        channel: liveChatId,
         text: `${gift.displayName || "Someone"} gifted ${gift.count} membership${gift.count === 1 ? "" : "s"}!`,
-        displayName: "",
-        channelId: "",
-        profileImage: "",
-        mod: false,
-        subscriber: false,
-        broadcaster: false,
         timestamp: Date.now(),
-        system: true,
-        giftSub: true,
-      };
-      // The server replays its recent backlog whenever EventSource
-      // reconnects, so skip a gift already shown.
-      setMessages((prev) =>
-        prev.some((m) => m.id === notice.id) ? prev : pushCapped(prev, notice),
-      );
+      });
+    });
+
+    source.addEventListener("superchat", (event) => {
+      const sc = JSON.parse((event as MessageEvent).data) as SuperChatEvent;
+      const name = sc.displayName || "Someone";
+      pushNotification({
+        id: `yt-superchat-${sc.id}`,
+        platform: "youtube",
+        kind: "superchat",
+        channel: liveChatId,
+        text: sc.sticker
+          ? `${name} sent a ${sc.amount} Super Sticker`
+          : `${name} sent a ${sc.amount} Super Chat${sc.comment ? `: ${sc.comment}` : ""}`,
+        timestamp: sc.timestamp || Date.now(),
+      });
+      if (sc.comment) {
+        const msg: Omit<YouTubeDisplayMessage, "seq"> = {
+          id: sc.id,
+          text: sc.comment,
+          displayName: sc.displayName,
+          channelId: sc.channelId,
+          profileImage: "",
+          mod: false,
+          subscriber: false,
+          broadcaster: false,
+          timestamp: sc.timestamp || Date.now(),
+          superChat: sc.amount,
+        };
+        setMessages((prev) =>
+          prev.some((m) => m.id === msg.id) ? prev : pushCapped(prev, msg),
+        );
+      }
+    });
+
+    source.addEventListener("membership", (event) => {
+      const m = JSON.parse((event as MessageEvent).data) as MembershipEvent;
+      pushNotification({
+        id: `yt-membership-${m.id}`,
+        platform: "youtube",
+        kind: "membership",
+        channel: liveChatId,
+        text: describeMembership(m),
+        timestamp: m.timestamp || Date.now(),
+      });
     });
 
     source.addEventListener("streamError", (event) => {

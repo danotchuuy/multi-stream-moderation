@@ -103,3 +103,43 @@ func TestParseYouTubeVideoIDRejectsGarbage(t *testing.T) {
 		}
 	}
 }
+
+func TestYouTubeBanIDsRemembersLatestBanPerUser(t *testing.T) {
+	b := newYouTubeBanIDs()
+	if _, ok := b.get("chat1", "UC1"); ok {
+		t.Fatal("empty store reported a ban")
+	}
+
+	b.set("chat1", "UC1", "ban-a")
+	b.set("chat1", "UC1", "ban-b") // a later ban replaces the earlier one
+	b.set("chat2", "UC1", "ban-c") // same user, different chat
+	b.set("chat1", "UC2", "")      // no ID returned: nothing to remember
+
+	if id, _ := b.get("chat1", "UC1"); id != "ban-b" {
+		t.Errorf("chat1/UC1 = %q, want ban-b", id)
+	}
+	if id, _ := b.get("chat2", "UC1"); id != "ban-c" {
+		t.Errorf("chat2/UC1 = %q, want ban-c", id)
+	}
+	if _, ok := b.get("chat1", "UC2"); ok {
+		t.Error("an empty ban ID should not be stored")
+	}
+}
+
+func TestYouTubeBanIDsRemoveKeepsNewerBan(t *testing.T) {
+	b := newYouTubeBanIDs()
+	b.set("chat1", "UC1", "ban-a")
+	b.set("chat1", "UC1", "ban-b")
+
+	// Removing the stale ID (e.g. an unban racing a re-ban) must not
+	// forget the newer ban.
+	b.remove("chat1", "UC1", "ban-a")
+	if id, ok := b.get("chat1", "UC1"); !ok || id != "ban-b" {
+		t.Fatalf("after removing stale ID, got %q, %v; want ban-b", id, ok)
+	}
+
+	b.remove("chat1", "UC1", "ban-b")
+	if _, ok := b.get("chat1", "UC1"); ok {
+		t.Fatal("ban still present after removing it")
+	}
+}

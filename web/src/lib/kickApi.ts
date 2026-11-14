@@ -199,3 +199,12 @@ export async function timeoutKickChatter(
     throw new Error(await readErrorMessage(res, `timeout failed: ${res.status}`));
   }
 }
+
+/** Lifts a ban or ends a timeout early. */
+export async function unbanKickChatter(channel: string, userId: number): Promise<void> {
+  const params = new URLSearchParams({ channel, userId: String(userId) });
+  const res = await fetch(`/api/kick/bans?${params}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `unban failed: ${res.status}`));
+  }
+}

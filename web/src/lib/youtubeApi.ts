@@ -1,3 +1,5 @@
+import type { UserInfo } from "./api";
+
 export type YouTubeUser = {
   channelId: string;
   channelTitle: string;
@@ -135,4 +137,26 @@ export async function timeoutYouTubeChatter(
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `timeout failed: ${res.status}`));
   }
+}
+
+/** Lifts a ban or ends a timeout early. Only works for bans made from
+ * this app since the server last started — YouTube can only undo a ban
+ * by the ID it returned when the ban was made. */
+export async function unbanYouTubeChatter(
+  liveChatId: string,
+  channelId: string,
+): Promise<void> {
+  const params = new URLSearchParams({ liveChatId, channelId });
+  const res = await fetch(`/api/youtube/bans?${params}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `unban failed: ${res.status}`));
+  }
+}
+
+export async function fetchYouTubeUser(channelId: string): Promise<UserInfo> {
+  const res = await fetch(`/api/youtube/users/${encodeURIComponent(channelId)}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `user lookup failed: ${res.status}`));
+  }
+  return res.json();
 }

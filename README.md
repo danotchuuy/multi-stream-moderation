@@ -44,6 +44,14 @@ category/game — Twitch only allows the broadcaster themselves to do
 this (not a moderator, even one who can otherwise moderate the
 channel), so the menu is hidden for anyone else.
 
+Clicking any chatter's name opens a **user card** under that message,
+with their recent messages in the panel, every ban/timeout/unban you've
+made on them this session, and the Delete / Timeout / Ban controls plus
+an **Unban** button (which also ends a timeout early). Twitch and
+YouTube cards also show when the account was created; Kick's API
+doesn't expose that. Every ban or timeout you make, on any platform,
+also pops up an **Undo** toast for 10 seconds.
+
 Chat is read over [EventSub](https://dev.twitch.tv/docs/chat/irc-migration/)
 (a WebSocket subscribed to `channel.chat.message` and friends), not the
 now-deprecated Twitch IRC — one EventSub session is opened per browser
@@ -147,6 +155,13 @@ sending messages back. A few things work differently here too:
   take from it.
 - Signing in is required just to watch, like Kick (there's no anonymous
   read).
+- Super Chats, Super Stickers, new/upgraded memberships, member
+  milestones and gifted memberships go to the shared notifications feed
+  alongside Twitch and Kick events. A Super Chat's comment also stays in
+  the chat log, highlighted, so it can still be moderated.
+- Unban/Undo only works for bans and timeouts made from this app since
+  the server last started: YouTube can only lift a ban by the ID it
+  returned when the ban was made, and has no way to list a chat's bans.
 - The default free quota is 10,000 units/day; each poll costs ~1 unit
   and this app polls every 2-15 seconds (YouTube tells it the interval),
   so normal use for a personal moderation tool comfortably fits.

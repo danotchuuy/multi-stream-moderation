@@ -153,6 +153,42 @@ type youtubeGiftSubDTO struct {
 	Count       int    `json:"count"`
 }
 
+// youtubeSuperChatDTO is a Super Chat or Super Sticker. Amount is
+// YouTube's own rendered string (e.g. "$5.00"), so currency formatting
+// matches what viewers see on YouTube. Comment is empty for a sticker,
+// and for a Super Chat sent without a message.
+type youtubeSuperChatDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	ChannelID   string `json:"channelId"`
+	Amount      string `json:"amount"`
+	Comment     string `json:"comment"`
+	Sticker     bool   `json:"sticker"`
+	Tier        int    `json:"tier"`
+	Timestamp   int64  `json:"timestamp"`
+}
+
+// youtubeMembershipDTO is a new or upgraded membership, or a member
+// milestone message (Months > 0). Level is the channel's own name for
+// the membership level, which YouTube sometimes leaves empty.
+type youtubeMembershipDTO struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	ChannelID   string `json:"channelId"`
+	Level       string `json:"level"`
+	Upgrade     bool   `json:"upgrade,omitempty"`
+	Months      int    `json:"months,omitempty"`
+	Comment     string `json:"comment,omitempty"`
+	Timestamp   int64  `json:"timestamp"`
+}
+
+func youtubeItemTimestamp(snippet *youtubepb.LiveChatMessageSnippet) int64 {
+	if parsed, err := time.Parse(time.RFC3339, snippet.GetPublishedAt()); err == nil {
+		return parsed.UnixMilli()
+	}
+	return time.Now().UnixMilli()
+}
+
 // youtubeChatEventFromItem converts a chat item into the SSE event to
 // relay, or ok=false for item types this app doesn't show.
 func youtubeChatEventFromItem(item *youtubepb.LiveChatMessage) (ev youtubeChatEvent, ok bool) {
@@ -192,6 +228,57 @@ func youtubeChatEventFromItem(item *youtubepb.LiveChatMessage) (ev youtubeChatEv
 			ID:          item.GetId(),
 			DisplayName: item.GetAuthorDetails().GetDisplayName(),
 			Count:       int(snippet.GetMembershipGiftingDetails().GetGiftMembershipsCount()),
+		}), true
+
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_SUPER_CHAT_EVENT:
+		details := snippet.GetSuperChatDetails()
+		author := item.GetAuthorDetails()
+		return newYouTubeChatEvent("superchat", youtubeSuperChatDTO{
+			ID:          item.GetId(),
+			DisplayName: author.GetDisplayName(),
+			ChannelID:   author.GetChannelId(),
+			Amount:      details.GetAmountDisplayString(),
+			Comment:     details.GetUserComment(),
+			Tier:        int(details.GetTier()),
+			Timestamp:   youtubeItemTimestamp(snippet),
+		}), true
+
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_SUPER_STICKER_EVENT:
+		details := snippet.GetSuperStickerDetails()
+		author := item.GetAuthorDetails()
+		return newYouTubeChatEvent("superchat", youtubeSuperChatDTO{
+			ID:          item.GetId(),
+			DisplayName: author.GetDisplayName(),
+			ChannelID:   author.GetChannelId(),
+			Amount:      details.GetAmountDisplayString(),
+			Sticker:     true,
+			Tier:        int(details.GetTier()),
+			Timestamp:   youtubeItemTimestamp(snippet),
+		}), true
+
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_NEW_SPONSOR_EVENT:
+		details := snippet.GetNewSponsorDetails()
+		author := item.GetAuthorDetails()
+		return newYouTubeChatEvent("membership", youtubeMembershipDTO{
+			ID:          item.GetId(),
+			DisplayName: author.GetDisplayName(),
+			ChannelID:   author.GetChannelId(),
+			Level:       details.GetMemberLevelName(),
+			Upgrade:     details.GetIsUpgrade(),
+			Timestamp:   youtubeItemTimestamp(snippet),
+		}), true
+
+	case youtubepb.LiveChatMessageSnippet_TypeWrapper_MEMBER_MILESTONE_CHAT_EVENT:
+		details := snippet.GetMemberMilestoneChatDetails()
+		author := item.GetAuthorDetails()
+		return newYouTubeChatEvent("membership", youtubeMembershipDTO{
+			ID:          item.GetId(),
+			DisplayName: author.GetDisplayName(),
+			ChannelID:   author.GetChannelId(),
+			Level:       details.GetMemberLevelName(),
+			Months:      int(details.GetMemberMonth()),
+			Comment:     details.GetUserComment(),
+			Timestamp:   youtubeItemTimestamp(snippet),
 		}), true
 	}
 	return ev, false

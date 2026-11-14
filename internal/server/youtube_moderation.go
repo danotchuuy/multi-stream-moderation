@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -112,9 +113,10 @@ type liveChatBannedUserDetail struct {
 }
 
 // banOrTimeoutYouTubeUser bans channelID outright, or times them out for
-// durationSeconds if it's greater than zero.
+// durationSeconds if it's greater than zero, and returns the ban's own
+// ID — the only handle liveChatBans.delete accepts for undoing it.
 // https://developers.google.com/youtube/v3/live/docs/liveChatBans/insert
-func banOrTimeoutYouTubeUser(ctx context.Context, accessToken, liveChatID, channelID string, durationSeconds int) error {
+func banOrTimeoutYouTubeUser(ctx context.Context, accessToken, liveChatID, channelID string, durationSeconds int) (banID string, err error) {
 	snippet := liveChatBanSnippet{
 		LiveChatID:        liveChatID,
 		Type:              "permanent",
@@ -127,9 +129,66 @@ func banOrTimeoutYouTubeUser(ctx context.Context, accessToken, liveChatID, chann
 
 	body, err := json.Marshal(liveChatBanRequest{Snippet: snippet})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	endpoint := youtubeAPIBase + "/liveChat/bans?" + url.Values{"part": {"snippet"}}.Encode()
-	return youtubeAPIRequest(ctx, http.MethodPost, endpoint, accessToken, body, nil)
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := youtubeAPIRequest(ctx, http.MethodPost, endpoint, accessToken, body, &out); err != nil {
+		return "", err
+	}
+	return out.ID, nil
+}
+
+// unbanYouTubeUser lifts a ban or ends a timeout early, by the ID
+// liveChatBans.insert returned for it.
+// https://developers.google.com/youtube/v3/live/docs/liveChatBans/delete
+func unbanYouTubeUser(ctx context.Context, accessToken, banID string) error {
+	endpoint := youtubeAPIBase + "/liveChat/bans?" + url.Values{"id": {banID}}.Encode()
+	return youtubeAPIRequest(ctx, http.MethodDelete, endpoint, accessToken, nil, nil)
+}
+
+type youtubeBanKey struct {
+	liveChatID string
+	channelID  string
+}
+
+// youtubeBanIDs remembers the ID of each ban or timeout made from this
+// app, per live chat and banned channel. YouTube has no way to list a
+// chat's bans or look one up by user, so a ban made anywhere else — or
+// before this process started — can't be undone from here.
+type youtubeBanIDs struct {
+	mu  sync.Mutex
+	ids map[youtubeBanKey]string
+}
+
+func newYouTubeBanIDs() *youtubeBanIDs {
+	return &youtubeBanIDs{ids: make(map[youtubeBanKey]string)}
+}
+
+func (b *youtubeBanIDs) set(liveChatID, channelID, banID string) {
+	if banID == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ids[youtubeBanKey{liveChatID, channelID}] = banID
+}
+
+func (b *youtubeBanIDs) get(liveChatID, channelID string) (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	id, ok := b.ids[youtubeBanKey{liveChatID, channelID}]
+	return id, ok
+}
+
+func (b *youtubeBanIDs) remove(liveChatID, channelID, banID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := youtubeBanKey{liveChatID, channelID}
+	if b.ids[key] == banID {
+		delete(b.ids, key)
+	}
 }

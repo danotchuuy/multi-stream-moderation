@@ -8,10 +8,13 @@ export type PlatformNotificationKind =
   | "watchstreak"
   | "kicksgifted"
   | "cheer"
-  | "raid";
+  | "raid"
+  | "superchat"
+  | "membership";
 
 /** One "money/support" event — a sub, gift, watch streak, Kicks spend,
- * Bits cheer, or incoming raid — from any connected platform, combined
+ * Bits cheer, Super Chat/Sticker, YouTube membership, or incoming raid
+ * — from any connected platform, combined
  * into a single feed
  * (see NotificationsPanel) instead of interleaved into that platform's
  * own chat log. Platform-specific hooks (useChatStream,
@@ -20,7 +23,7 @@ export type PlatformNotificationKind =
  * subscribed. */
 export type PlatformNotification = {
   id: string;
-  platform: "twitch" | "kick";
+  platform: "twitch" | "kick" | "youtube";
   kind: PlatformNotificationKind;
   channel: string;
   text: string;
@@ -35,6 +38,9 @@ function emit() {
 }
 
 export function pushNotification(notification: PlatformNotification) {
+  // A platform that replays recent events on reconnect (YouTube's hub)
+  // sends the same event ID again; show it once.
+  if (notifications.some((n) => n.id === notification.id)) return;
   notifications =
     notifications.length >= MAX_NOTIFICATIONS
       ? [...notifications.slice(1), notification]

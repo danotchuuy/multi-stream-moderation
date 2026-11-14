@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -178,5 +179,15 @@ func TestKickHubSignalsLaggedViewerInsteadOfSilentlyDropping(t *testing.T) {
 	case <-sub.lagged:
 	default:
 		t.Fatal("viewer that overflowed its buffer was not signalled as lagged")
+	}
+}
+
+func TestKickUnbanRequestShape(t *testing.T) {
+	data, err := json.Marshal(kickUnbanRequest{BroadcasterUserID: 123, UserID: 333})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if got, want := string(data), `{"broadcaster_user_id":123,"user_id":333}`; got != want {
+		t.Fatalf("body = %s, want %s", got, want)
 	}
 }

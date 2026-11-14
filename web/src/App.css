@@ -456,6 +456,24 @@
   font-style: normal;
 }
 
+.chat-log li.chat-superchat {
+  background: var(--superchat-bg);
+  border: 1px solid var(--superchat-border);
+  border-radius: 4px;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.chat-tag-superchat {
+  background: var(--superchat-border);
+  color: #fff;
+  margin-right: 0.35rem;
+}
+
+[data-theme="dark"] .chat-tag-superchat {
+  color: #0a0a0a;
+}
+
 .chat-reply-context {
   /* Forces its own line at the top of the (flex-wrap) message row,
      rather than sitting inline before the badges/username/text. */
@@ -1040,4 +1058,155 @@
   .app {
     margin: 2rem auto;
   }
+}
+
+/* Undo toasts (UndoToasts.tsx): stacked bottom-right, above the panels. */
+.undo-toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: calc(100vw - 2rem);
+}
+
+.undo-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--fg);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  font-size: 0.9rem;
+}
+
+.undo-toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.undo-toast-button {
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--control-bg);
+  color: var(--control-fg);
+  cursor: pointer;
+}
+
+.undo-toast-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.undo-toast-dismiss {
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* User card (UserCard.tsx): expands under the clicked message, taking a
+   full line of the flex-wrap message row. */
+.user-card {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0.25rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  font-style: normal;
+  font-size: 0.85rem;
+}
+
+.user-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.user-card-avatar {
+  border-radius: 50%;
+}
+
+.user-card-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-card-meta {
+  color: var(--muted-fg);
+  font-size: 0.8rem;
+}
+
+.user-card-close {
+  border: none;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.user-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.user-card-actions .mod-controls {
+  margin: 0;
+}
+
+.user-card-section h4 {
+  margin: 0.6rem 0 0.25rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted-fg);
+}
+
+.user-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 10rem;
+  overflow-y: auto;
+}
+
+/* Overrides the flex row layout .chat-log li gives every message row,
+   which these nested items would otherwise inherit. */
+.user-card-list li {
+  display: block;
+  padding: 0.1rem 0;
+  background: none;
+  word-break: break-word;
+}
+
+.user-card-list .chat-timestamp {
+  margin-right: 0.4rem;
+}
+
+.user-card-empty {
+  margin: 0;
+  color: var(--faint-fg);
+}
+
+.user-card-undone {
+  color: var(--faint-fg);
+  text-decoration: line-through;
 }

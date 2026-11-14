@@ -180,6 +180,40 @@ func (s *Server) handleTimeoutUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleUnbanUser lifts a ban or ends a timeout early. Takes channel
+// and userId as query parameters, like handleDeleteChatMessage.
+func (s *Server) handleUnbanUser(w http.ResponseWriter, r *http.Request) {
+	sess := s.sessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	userID := strings.TrimSpace(r.URL.Query().Get("userId"))
+	if userID == "" {
+		http.Error(w, "userId query parameter is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeTwitchChannel(r.URL.Query().Get("channel"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	broadcasterID, err := s.resolveBroadcasterID(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, channel)
+	if err != nil {
+		http.Error(w, "could not resolve channel", http.StatusBadGateway)
+		return
+	}
+
+	if err := unbanUser(r.Context(), s.cfg.TwitchClientID, sess.AccessToken, broadcasterID, sess.UserID, userID); err != nil {
+		writeTwitchAPIError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type automodResolveRequestDTO struct {
 	MessageID string `json:"messageId"`
 	// Action is "allow" or "deny".

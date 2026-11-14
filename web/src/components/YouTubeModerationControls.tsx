@@ -3,7 +3,9 @@ import {
   banYouTubeChatter,
   deleteYouTubeChatMessage,
   timeoutYouTubeChatter,
+  unbanYouTubeChatter,
 } from "../lib/youtubeApi";
+import { recordBan } from "../lib/moderationActionsStore";
 
 // YouTube's ban duration is seconds, like Twitch (Kick uses minutes).
 const TIMEOUT_PRESETS: { label: string; seconds: number }[] = [
@@ -17,6 +19,8 @@ type Props = {
   liveChatId: string;
   messageId: string;
   channelId: string;
+  /** Labels the undo toast and user card entry. */
+  username: string;
   onError: (message: string) => void;
   /** YouTube gives this app no server-side event confirming a message
    * was deleted (like Kick), so the panel needs to be told directly to
@@ -28,10 +32,13 @@ export function YouTubeModerationControls({
   liveChatId,
   messageId,
   channelId,
+  username,
   onError,
   onDeleted,
 }: Props) {
   const [busy, setBusy] = useState(false);
+  const target = { platform: "youtube" as const, scope: liveChatId, userId: channelId, username };
+  const unban = () => unbanYouTubeChatter(liveChatId, channelId);
 
   const run = async (action: () => Promise<void>, after?: () => void) => {
     if (busy) return;
@@ -73,7 +80,11 @@ export function YouTubeModerationControls({
           const seconds = Number(e.target.value);
           e.target.value = "";
           if (seconds > 0) {
-            run(() => timeoutYouTubeChatter(liveChatId, channelId, seconds));
+            const label = TIMEOUT_PRESETS.find((p) => p.seconds === seconds)?.label;
+            run(async () => {
+              await timeoutYouTubeChatter(liveChatId, channelId, seconds);
+              recordBan(target, "timeout", unban, label);
+            });
           }
         }}
       >
@@ -92,7 +103,12 @@ export function YouTubeModerationControls({
         aria-label="Ban"
         title="Ban"
         disabled={busy}
-        onClick={() => run(() => banYouTubeChatter(liveChatId, channelId))}
+        onClick={() =>
+          run(async () => {
+            await banYouTubeChatter(liveChatId, channelId);
+            recordBan(target, "ban", unban);
+          })
+        }
       >
         🔨
       </button>

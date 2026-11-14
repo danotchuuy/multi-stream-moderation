@@ -305,10 +305,12 @@ func (s *Server) handleBanYouTubeUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := banOrTimeoutYouTubeUser(r.Context(), sess.AccessToken, req.LiveChatID, req.ChannelID, 0); err != nil {
+	banID, err := banOrTimeoutYouTubeUser(r.Context(), sess.AccessToken, req.LiveChatID, req.ChannelID, 0)
+	if err != nil {
 		writeYouTubeError(w, err, http.StatusBadGateway)
 		return
 	}
+	s.youtubeBanIDs.set(req.LiveChatID, req.ChannelID, banID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -334,10 +336,43 @@ func (s *Server) handleTimeoutYouTubeUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := banOrTimeoutYouTubeUser(r.Context(), sess.AccessToken, req.LiveChatID, req.ChannelID, req.DurationSeconds); err != nil {
+	banID, err := banOrTimeoutYouTubeUser(r.Context(), sess.AccessToken, req.LiveChatID, req.ChannelID, req.DurationSeconds)
+	if err != nil {
 		writeYouTubeError(w, err, http.StatusBadGateway)
 		return
 	}
+	s.youtubeBanIDs.set(req.LiveChatID, req.ChannelID, banID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUnbanYouTubeUser lifts a ban or ends a timeout early. Takes
+// liveChatId and channelId as query parameters. Only bans made from this
+// app since the server started can be undone (see youtubeBanIDs).
+func (s *Server) handleUnbanYouTubeUser(w http.ResponseWriter, r *http.Request) {
+	sess := s.youtubeSessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	liveChatID := strings.TrimSpace(r.URL.Query().Get("liveChatId"))
+	channelID := strings.TrimSpace(r.URL.Query().Get("channelId"))
+	if liveChatID == "" || channelID == "" {
+		http.Error(w, "liveChatId and channelId query parameters are required", http.StatusBadRequest)
+		return
+	}
+
+	banID, ok := s.youtubeBanIDs.get(liveChatID, channelID)
+	if !ok {
+		http.Error(w, "no ban made from this app was found for that user — YouTube only allows undoing bans by their ID", http.StatusNotFound)
+		return
+	}
+
+	if err := unbanYouTubeUser(r.Context(), sess.AccessToken, banID); err != nil {
+		writeYouTubeError(w, err, http.StatusBadGateway)
+		return
+	}
+	s.youtubeBanIDs.remove(liveChatID, channelID, banID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

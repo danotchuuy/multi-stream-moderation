@@ -4,12 +4,13 @@ import { useKickSpamGroups } from "../lib/useKickSpamGroups";
 import { useAutoScroll } from "../lib/useAutoScroll";
 import { formatClockTime } from "../lib/formatTime";
 import { useShowTimestamps } from "../lib/settingsStore";
-import { fetchKickChatEmotes, sendKickChatMessage } from "../lib/kickApi";
+import { fetchKickChatEmotes, sendKickChatMessage, unbanKickChatter } from "../lib/kickApi";
 import { KickModerationControls } from "./KickModerationControls";
 import { KickSpamGroupsPanel } from "./KickSpamGroupsPanel";
 import { ChatBadges } from "./ChatBadges";
 import { ChatMessageText } from "./ChatMessageText";
 import { ChatComposer, type ReplyTarget } from "./ChatComposer";
+import { UserCard } from "./UserCard";
 import { KickChannelInfoMenu } from "./KickChannelInfoMenu";
 
 type Props = {
@@ -23,7 +24,14 @@ export function canModerateMessage(
   m: KickDisplayMessage,
   viewerIsBroadcaster: boolean,
 ): boolean {
-  if (m.system || m.deleted) return false;
+  if (m.deleted) return false;
+  return canModerateSender(m, viewerIsBroadcaster);
+}
+
+/** Like canModerateMessage, but still true once the message is deleted
+ * — a deleted message is often exactly when its sender needs an Unban. */
+function canModerateSender(m: KickDisplayMessage, viewerIsBroadcaster: boolean): boolean {
+  if (m.system) return false;
   if (m.broadcaster) return false;
   if (m.mod && !viewerIsBroadcaster) return false;
   return true;
@@ -45,10 +53,10 @@ export function KickChatPanel({
   const spamGroups = useKickSpamGroups(messages, viewerIsBroadcaster);
   const [actionError, setActionError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
-  // Which message's moderation controls (if any) are currently
-  // expanded — toggled by clicking that message's username, one at a
-  // time, rather than showing every eligible message's controls at once.
-  const [openModFor, setOpenModFor] = useState<string | null>(null);
+  // Which message's user card (if any) is currently open — toggled by
+  // clicking that message's username, one at a time. The card holds the
+  // moderation controls, so they're never all shown at once.
+  const [openCardFor, setOpenCardFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
   const showTimestamps = useShowTimestamps();
 
@@ -106,32 +114,16 @@ export function KickChatPanel({
                     </span>
                   )}
                   <ChatBadges badges={m.badges} />
-                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
-                    <button
-                      type="button"
-                      className="chat-user chat-user-button"
-                      style={{ color: m.color || undefined }}
-                      aria-expanded={openModFor === m.id}
-                      title="Moderation options"
-                      onClick={() => setOpenModFor((cur) => (cur === m.id ? null : m.id))}
-                    >
-                      {m.username}
-                    </button>
-                  ) : (
-                    <span className="chat-user" style={{ color: m.color || undefined }}>
-                      {m.username}
-                    </span>
-                  )}
-                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) && openModFor === m.id && (
-                    <KickModerationControls
-                      channel={channel}
-                      messageId={m.id}
-                      userId={m.userId}
-                      username={m.username}
-                      onError={setActionError}
-                      onDeleted={markDeleted}
-                    />
-                  )}
+                  <button
+                    type="button"
+                    className="chat-user chat-user-button"
+                    style={{ color: m.color || undefined }}
+                    aria-expanded={openCardFor === m.id}
+                    title="User card"
+                    onClick={() => setOpenCardFor((cur) => (cur === m.id ? null : m.id))}
+                  >
+                    {m.username}
+                  </button>
                   <span className="chat-text">
                     {m.deleted ? (
                       "message deleted"
@@ -149,6 +141,35 @@ export function KickChatPanel({
                     >
                       ↩
                     </button>
+                  )}
+                  {openCardFor === m.id && (
+                    <UserCard
+                      platform="kick"
+                      scope={channel}
+                      userId={String(m.userId)}
+                      username={m.username}
+                      color={m.color}
+                      messages={messages.filter((x) => !x.system && x.userId === m.userId)}
+                      controls={
+                        canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
+                          <KickModerationControls
+                            channel={channel}
+                            messageId={m.id}
+                            userId={m.userId}
+                            username={m.username}
+                            onError={setActionError}
+                            onDeleted={markDeleted}
+                          />
+                        ) : undefined
+                      }
+                      unban={
+                        canModerate && canModerateSender(m, viewerIsBroadcaster)
+                          ? () => unbanKickChatter(channel, m.userId)
+                          : undefined
+                      }
+                      onError={setActionError}
+                      onClose={() => setOpenCardFor(null)}
+                    />
                   )}
                 </>
               )}

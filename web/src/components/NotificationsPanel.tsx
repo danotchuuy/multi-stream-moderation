@@ -16,6 +16,8 @@ const KIND_EMOJI: Record<PlatformNotification["kind"], string> = {
   kicksgifted: "🪙",
   cheer: "💎",
   raid: "🎉",
+  superchat: "💵",
+  membership: "⭐",
 };
 
 // Reuses the exact classes each platform's own chat log already styles
@@ -29,11 +31,14 @@ const KIND_CLASS: Record<PlatformNotification["kind"], string> = {
   kicksgifted: "chat-kicksgifted",
   cheer: "chat-cheer",
   raid: "chat-raid",
+  superchat: "chat-superchat",
+  membership: "chat-sub",
 };
 
 const PLATFORM_LABEL: Record<PlatformNotification["platform"], string> = {
   twitch: "Twitch",
   kick: "Kick",
+  youtube: "YouTube",
 };
 
 const KIND_LABEL: Record<PlatformNotificationKind, string> = {
@@ -43,31 +48,59 @@ const KIND_LABEL: Record<PlatformNotificationKind, string> = {
   kicksgifted: "Kicks gifted",
   cheer: "Cheers",
   raid: "Raids",
+  superchat: "Super Chats",
+  membership: "Memberships",
 };
 
 const ALL_KINDS = Object.keys(KIND_LABEL) as PlatformNotificationKind[];
 
-const FILTER_STORAGE_KEY = "notificationsPanel.visibleKinds";
+/** Stores the kinds the viewer has *hidden*, so a kind added later
+ * (like Super Chats) starts out visible instead of silently filtered. */
+const HIDDEN_STORAGE_KEY = "notificationsPanel.hiddenKinds";
+/** The previous format: the kinds left *visible*, written before any
+ * YouTube kinds existed. Read once to carry an existing filter over. */
+const LEGACY_VISIBLE_STORAGE_KEY = "notificationsPanel.visibleKinds";
+const LEGACY_KINDS: PlatformNotificationKind[] = [
+  "sub",
+  "giftsub",
+  "watchstreak",
+  "kicksgifted",
+  "cheer",
+  "raid",
+];
+
+function parseKindList(raw: string | null): PlatformNotificationKind[] | null {
+  if (!raw) return null;
+  const saved: unknown = JSON.parse(raw);
+  if (!Array.isArray(saved)) return null;
+  return ALL_KINDS.filter((kind) => saved.includes(kind));
+}
 
 /** Reads which notification kinds were left checked from a previous
- * visit — every kind (i.e. treat storage as absent) for any reason it
- * can't be read, e.g. private browsing with storage disabled, or a
- * kind that's been added since the saved list was written. */
+ * visit — every kind for any reason storage can't be read, e.g.
+ * private browsing with storage disabled. */
 function readVisibleKinds(): Set<PlatformNotificationKind> {
   try {
-    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
-    if (!raw) return new Set(ALL_KINDS);
-    const saved: unknown = JSON.parse(raw);
-    if (!Array.isArray(saved)) return new Set(ALL_KINDS);
-    return new Set(ALL_KINDS.filter((kind) => saved.includes(kind)));
+    const hidden = parseKindList(localStorage.getItem(HIDDEN_STORAGE_KEY));
+    if (hidden) return new Set(ALL_KINDS.filter((kind) => !hidden.includes(kind)));
+
+    const legacyVisible = parseKindList(localStorage.getItem(LEGACY_VISIBLE_STORAGE_KEY));
+    if (legacyVisible) {
+      return new Set(
+        ALL_KINDS.filter((kind) => !LEGACY_KINDS.includes(kind) || legacyVisible.includes(kind)),
+      );
+    }
   } catch {
-    return new Set(ALL_KINDS);
+    // Fall through to showing everything.
   }
+  return new Set(ALL_KINDS);
 }
 
 function writeVisibleKinds(kinds: Set<PlatformNotificationKind>) {
   try {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify([...kinds]));
+    const hidden = ALL_KINDS.filter((kind) => !kinds.has(kind));
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hidden));
+    localStorage.removeItem(LEGACY_VISIBLE_STORAGE_KEY);
   } catch {
     // Storage unavailable — the filter still works for this session, it
     // just won't be remembered next time.
@@ -76,8 +109,8 @@ function writeVisibleKinds(kinds: Set<PlatformNotificationKind>) {
 
 /** NotificationsPanel is the combined feed for every platform's
  * "money/support" and raid events — subs, gift subs, watch streaks,
- * Kicks spent, Bits cheers, and incoming raids today; Super Chats will
- * land here too once that's implemented (see PlatformNotification) —
+ * Kicks spent, Bits cheers, YouTube Super Chats and memberships, and
+ * incoming raids (see PlatformNotification) —
  * pulled out of each platform's own chat log into one shared window so
  * they're never lost in the scroll of ordinary messages. A row of
  * checkboxes above the list lets the viewer hide kinds they don't care

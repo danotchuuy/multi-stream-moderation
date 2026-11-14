@@ -140,6 +140,12 @@ type Server struct {
 	kickSubscriptionLocks sync.Map
 
 	youtubeAuth *youtubeAuthStore
+	// youtubeBanIDs maps bans made from this app to YouTube's ban IDs,
+	// so they can be undone (see youtube_moderation.go).
+	youtubeBanIDs *youtubeBanIDs
+
+	// userInfo caches account lookups for the user card (user_info.go).
+	userInfo *userInfoCache
 
 	// instanceID identifies this particular running process — a fresh
 	// random value minted on every startup, exposed via /api/health so
@@ -191,7 +197,9 @@ func New(cfg Config) *Server {
 		kickBanHistory:    newChatHistoryCache[int64, kickBannedDTO](chatHistoryLimit, func(b kickBannedDTO) string { return b.ID }),
 		kickRecentBans:    newKickRecentBans(),
 
-		youtubeAuth: newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
+		youtubeAuth:   newYouTubeAuthStore(cfg.YouTubeSessionStoreFile, cfg.SessionEncryptionKey),
+		youtubeBanIDs: newYouTubeBanIDs(),
+		userInfo:      newUserInfoCache(),
 	}
 	s.routes()
 
@@ -266,6 +274,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 
 	s.mux.HandleFunc("GET /api/twitch/moderated-channels", s.handleModeratedChannels)
+	s.mux.HandleFunc("GET /api/twitch/users/{id}", s.handleGetTwitchUser)
 	s.mux.HandleFunc("GET /api/chat/stream", s.handleChatStream)
 
 	s.mux.HandleFunc("GET /api/twitch/channel-info", s.handleGetTwitchChannelInfo)
@@ -277,6 +286,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/chat/emotes", s.handleGetTwitchEmotes)
 	s.mux.HandleFunc("POST /api/chat/bans", s.handleBanUser)
 	s.mux.HandleFunc("POST /api/chat/timeouts", s.handleTimeoutUser)
+	s.mux.HandleFunc("DELETE /api/chat/bans", s.handleUnbanUser)
 	s.mux.HandleFunc("POST /api/chat/automod", s.handleResolveAutomodMessage)
 
 	s.mux.HandleFunc("GET /api/auth/kick/login", s.handleKickLogin)
@@ -294,6 +304,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/kick/chat/emotes", s.handleGetKickEmotes)
 	s.mux.HandleFunc("POST /api/kick/bans", s.handleBanKickUser)
 	s.mux.HandleFunc("POST /api/kick/timeouts", s.handleTimeoutKickUser)
+	s.mux.HandleFunc("DELETE /api/kick/bans", s.handleUnbanKickUser)
 	// Called by Kick's servers, not the browser — no session cookie, no
 	// CORS involved; authenticated instead via RSA signature (see
 	// kick_webhooks.go).
@@ -311,6 +322,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/youtube/chat/messages", s.handleDeleteYouTubeChatMessage)
 	s.mux.HandleFunc("POST /api/youtube/bans", s.handleBanYouTubeUser)
 	s.mux.HandleFunc("POST /api/youtube/timeouts", s.handleTimeoutYouTubeUser)
+	s.mux.HandleFunc("DELETE /api/youtube/bans", s.handleUnbanYouTubeUser)
+	s.mux.HandleFunc("GET /api/youtube/users/{id}", s.handleGetYouTubeUser)
 
 	if info, err := os.Stat(s.cfg.UIDistDir); err == nil && info.IsDir() {
 		s.mux.Handle("/", http.FileServer(http.Dir(s.cfg.UIDistDir)))

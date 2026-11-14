@@ -323,6 +323,39 @@ func (s *Server) handleTimeoutKickUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleUnbanKickUser lifts a ban or ends a timeout early. Takes
+// channel and userId as query parameters.
+func (s *Server) handleUnbanKickUser(w http.ResponseWriter, r *http.Request) {
+	sess := s.kickSessionFromRequest(r)
+	if sess == nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("userId")), 10, 64)
+	if err != nil || userID <= 0 {
+		http.Error(w, "userId query parameter is required", http.StatusBadRequest)
+		return
+	}
+	channel, err := normalizeKickChannel(r.URL.Query().Get("channel"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	broadcasterID, err := s.resolveKickBroadcasterID(r.Context(), sess.AccessToken, channel)
+	if err != nil {
+		http.Error(w, "could not resolve channel", http.StatusBadGateway)
+		return
+	}
+
+	if err := unbanKickUser(r.Context(), sess.AccessToken, broadcasterID, userID); err != nil {
+		writeKickAPIError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func writeKickAPIError(w http.ResponseWriter, err error) {
 	if apiErr, ok := err.(*kickAPIError); ok {
 		status := apiErr.Status

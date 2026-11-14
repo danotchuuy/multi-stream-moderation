@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { banChatter, deleteChatMessage, timeoutChatter } from "../lib/api";
+import { banChatter, deleteChatMessage, timeoutChatter, unbanChatter } from "../lib/api";
+import { recordBan } from "../lib/moderationActionsStore";
 
 const TIMEOUT_PRESETS: { label: string; seconds: number }[] = [
   { label: "1m", seconds: 60 },
@@ -12,6 +13,8 @@ type Props = {
   channel: string;
   messageId: string;
   userId: string;
+  /** Labels the undo toast and user card entry. */
+  username: string;
   onError: (message: string) => void;
 };
 
@@ -21,8 +24,10 @@ type Props = {
  * ChatPanel.canModerateMessage). Twitch still enforces this
  * authoritatively server-side — these are just the client-side controls
  * for making the calls. */
-export function ModerationControls({ channel, messageId, userId, onError }: Props) {
+export function ModerationControls({ channel, messageId, userId, username, onError }: Props) {
   const [busy, setBusy] = useState(false);
+  const target = { platform: "twitch" as const, scope: channel, userId, username };
+  const unban = () => unbanChatter(channel, userId);
 
   const run = async (action: () => Promise<void>) => {
     if (busy) return;
@@ -58,7 +63,11 @@ export function ModerationControls({ channel, messageId, userId, onError }: Prop
           const seconds = Number(e.target.value);
           e.target.value = "";
           if (seconds > 0) {
-            run(() => timeoutChatter(channel, userId, seconds));
+            const label = TIMEOUT_PRESETS.find((p) => p.seconds === seconds)?.label;
+            run(async () => {
+              await timeoutChatter(channel, userId, seconds);
+              recordBan(target, "timeout", unban, label);
+            });
           }
         }}
       >
@@ -77,7 +86,12 @@ export function ModerationControls({ channel, messageId, userId, onError }: Prop
         aria-label="Ban"
         title="Ban"
         disabled={busy}
-        onClick={() => run(() => banChatter(channel, userId))}
+        onClick={() =>
+          run(async () => {
+            await banChatter(channel, userId);
+            recordBan(target, "ban", unban);
+          })
+        }
       >
         🔨
       </button>

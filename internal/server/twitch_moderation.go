@@ -147,6 +147,19 @@ func banOrTimeoutUser(ctx context.Context, clientID, accessToken, broadcasterID,
 	return twitchAPIRequest(ctx, http.MethodPost, endpoint, clientID, accessToken, body, nil)
 }
 
+// unbanUser lifts a ban or ends a timeout early — Twitch uses the same
+// endpoint for both.
+// https://dev.twitch.tv/docs/api/reference/#unban-user
+func unbanUser(ctx context.Context, clientID, accessToken, broadcasterID, moderatorID, userID string) error {
+	params := url.Values{
+		"broadcaster_id": {broadcasterID},
+		"moderator_id":   {moderatorID},
+		"user_id":        {userID},
+	}
+	endpoint := twitchAPIBase + "/moderation/bans?" + params.Encode()
+	return twitchAPIRequest(ctx, http.MethodDelete, endpoint, clientID, accessToken, nil, nil)
+}
+
 // automodResolveRequest is the Manage Held AutoMod Messages request
 // body. UserID is the moderator taking the action — Twitch requires it
 // to match the token's own user ID — not the held message's sender.

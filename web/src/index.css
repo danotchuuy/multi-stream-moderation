@@ -32,6 +32,8 @@
   --automod-bg: #eaf1ff;
   --kicksgifted-border: #2e9c00;
   --kicksgifted-bg: #eafce6;
+  --superchat-border: #1e88e5;
+  --superchat-bg: #e8f2fd;
   --first-chat-fg: #0a6e0a;
   --first-chat-bg: #e3f7e3;
 }
@@ -70,6 +72,8 @@
   --automod-bg: #16233d;
   --kicksgifted-border: #3fbf3f;
   --kicksgifted-bg: #163a16;
+  --superchat-border: #64b5f6;
+  --superchat-bg: #13263b;
   --first-chat-fg: #6fe36f;
   --first-chat-bg: #16301a;
 }

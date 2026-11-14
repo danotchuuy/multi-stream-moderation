@@ -4,11 +4,12 @@ import { useAutoScroll } from "../lib/useAutoScroll";
 import { formatClockTime } from "../lib/formatTime";
 import { useShowTimestamps } from "../lib/settingsStore";
 import { useTwitchSpamGroups } from "../lib/useTwitchSpamGroups";
-import { fetchChatEmotes, sendChatMessage } from "../lib/api";
+import { fetchChatEmotes, fetchTwitchUser, sendChatMessage, unbanChatter } from "../lib/api";
 import { ModerationControls } from "./ModerationControls";
 import { ChatBadges } from "./ChatBadges";
 import { ChatMessageText } from "./ChatMessageText";
 import { ChatComposer, type ReplyTarget } from "./ChatComposer";
+import { UserCard } from "./UserCard";
 import { TwitchChannelInfoMenu } from "./TwitchChannelInfoMenu";
 import { TwitchSpamGroupsPanel } from "./TwitchSpamGroupsPanel";
 import { AutomodQueuePanel } from "./AutomodQueuePanel";
@@ -30,7 +31,14 @@ type Props = {
  * moderator. The API call would fail anyway; this just keeps the
  * controls from being offered for actions that would just error. */
 function canModerateMessage(m: DisplayMessage, viewerIsBroadcaster: boolean): boolean {
-  if (m.system || m.deleted) return false;
+  if (m.deleted) return false;
+  return canModerateSender(m, viewerIsBroadcaster);
+}
+
+/** Like canModerateMessage, but still true once the message is deleted
+ * — a deleted message is often exactly when its sender needs an Unban. */
+function canModerateSender(m: DisplayMessage, viewerIsBroadcaster: boolean): boolean {
+  if (m.system) return false;
   if (m.broadcaster) return false;
   if (m.mod && !viewerIsBroadcaster) return false;
   return true;
@@ -61,10 +69,10 @@ export function ChatPanel({
   const { messages, connected, automodQueue, markAutomodResolved } = useChatStream(channel);
   const [actionError, setActionError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
-  // Which message's moderation controls (if any) are currently
-  // expanded — toggled by clicking that message's username, one at a
-  // time, rather than showing every eligible message's controls at once.
-  const [openModFor, setOpenModFor] = useState<string | null>(null);
+  // Which message's user card (if any) is currently open — toggled by
+  // clicking that message's username, one at a time. The card holds the
+  // moderation controls, so they're never all shown at once.
+  const [openCardFor, setOpenCardFor] = useState<string | null>(null);
   const { ref: chatLogRef, onScroll } = useAutoScroll(messages);
   const spamGroups = useTwitchSpamGroups(messages, viewerIsBroadcaster);
   const showTimestamps = useShowTimestamps();
@@ -143,30 +151,16 @@ export function ChatPanel({
                       intro
                     </span>
                   )}
-                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
-                    <button
-                      type="button"
-                      className="chat-user chat-user-button"
-                      style={{ color: m.color || undefined }}
-                      aria-expanded={openModFor === m.id}
-                      title="Moderation options"
-                      onClick={() => setOpenModFor((cur) => (cur === m.id ? null : m.id))}
-                    >
-                      {m.displayName || m.username}
-                    </button>
-                  ) : (
-                    <span className="chat-user" style={{ color: m.color || undefined }}>
-                      {m.displayName || m.username}
-                    </span>
-                  )}
-                  {canModerate && canModerateMessage(m, viewerIsBroadcaster) && openModFor === m.id && (
-                    <ModerationControls
-                      channel={channel}
-                      messageId={m.id}
-                      userId={m.userId}
-                      onError={setActionError}
-                    />
-                  )}
+                  <button
+                    type="button"
+                    className="chat-user chat-user-button"
+                    style={{ color: m.color || undefined }}
+                    aria-expanded={openCardFor === m.id}
+                    title="User card"
+                    onClick={() => setOpenCardFor((cur) => (cur === m.id ? null : m.id))}
+                  >
+                    {m.displayName || m.username}
+                  </button>
                   <span className="chat-text">
                     {m.deleted ? (
                       "message deleted"
@@ -186,6 +180,35 @@ export function ChatPanel({
                     >
                       ↩
                     </button>
+                  )}
+                  {openCardFor === m.id && (
+                    <UserCard
+                      platform="twitch"
+                      scope={channel}
+                      userId={m.userId}
+                      username={m.displayName || m.username}
+                      color={m.color}
+                      messages={messages.filter((x) => !x.system && x.userId === m.userId)}
+                      fetchInfo={() => fetchTwitchUser(m.userId)}
+                      controls={
+                        canModerate && canModerateMessage(m, viewerIsBroadcaster) ? (
+                          <ModerationControls
+                            channel={channel}
+                            messageId={m.id}
+                            userId={m.userId}
+                            username={m.displayName || m.username}
+                            onError={setActionError}
+                          />
+                        ) : undefined
+                      }
+                      unban={
+                        canModerate && canModerateSender(m, viewerIsBroadcaster)
+                          ? () => unbanChatter(channel, m.userId)
+                          : undefined
+                      }
+                      onError={setActionError}
+                      onClose={() => setOpenCardFor(null)}
+                    />
                   )}
                 </>
               )}

@@ -20,6 +20,7 @@ import {
 } from "./lib/youtubeApi";
 import { PlatformSection } from "./components/PlatformSection";
 import { NotificationsPanel } from "./components/NotificationsPanel";
+import { UndoToasts } from "./components/UndoToasts";
 import { ConnectTwitch } from "./components/ConnectTwitch";
 import { ChannelPicker } from "./components/ChannelPicker";
 import { ChatPanel } from "./components/ChatPanel";
@@ -298,6 +299,8 @@ function App() {
           )}
         </PlatformSection>
       </div>
+
+      <UndoToasts />
     </main>
   );
 }

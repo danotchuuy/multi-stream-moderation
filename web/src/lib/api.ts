@@ -139,6 +139,32 @@ export async function banChatter(
   }
 }
 
+/** Lifts a ban or ends a timeout early. */
+export async function unbanChatter(channel: string, userId: string): Promise<void> {
+  const params = new URLSearchParams({ channel, userId });
+  const res = await fetch(`/api/chat/bans?${params}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `unban failed: ${res.status}`));
+  }
+}
+
+/** Account details shown on the user card. createdAt is Unix ms (0 if
+ * unknown). */
+export type UserInfo = {
+  id: string;
+  displayName: string;
+  profileImage?: string;
+  createdAt: number;
+};
+
+export async function fetchTwitchUser(userId: string): Promise<UserInfo> {
+  const res = await fetch(`/api/twitch/users/${encodeURIComponent(userId)}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `user lookup failed: ${res.status}`));
+  }
+  return res.json();
+}
+
 export type ChannelInfo = {
   title: string;
   categoryId: string;
